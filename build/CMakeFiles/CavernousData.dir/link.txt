@@ -1,0 +1,2 @@
+/usr/bin/ar qc libCavernousData.a CMakeFiles/CavernousData.dir/juce_binarydata_CavernousData/JuceLibraryCode/BinaryData1.cpp.o
+/usr/bin/ranlib libCavernousData.a

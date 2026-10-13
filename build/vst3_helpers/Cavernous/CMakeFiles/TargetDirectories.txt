@@ -1,0 +1,3 @@
+/Users/jon/workspace-ai/Cavernous/build/vst3_helpers/Cavernous/CMakeFiles/vst3_helper.dir
+/Users/jon/workspace-ai/Cavernous/build/vst3_helpers/Cavernous/CMakeFiles/edit_cache.dir
+/Users/jon/workspace-ai/Cavernous/build/vst3_helpers/Cavernous/CMakeFiles/rebuild_cache.dir
