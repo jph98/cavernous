@@ -17,9 +17,10 @@ private:
     struct Content;
 
     std::unique_ptr<Content> content;
+    juce::Viewport viewport;
 
-    static constexpr int designWidth = 1024;
-    static constexpr int designHeight = 1015;
+    static constexpr int designWidth = 1428;
+    static constexpr int designHeight = 776;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginEditor)
 };

@@ -1,0 +1,77 @@
+{
+  "Source/Dsp/CavernReverb.h": {
+    "mtime": 1791972418.7150471,
+    "ast_hash": "fab5deeabdd9e85ac8e355259d8c81ef",
+    "semantic_hash": ""
+  },
+  "Source/Dsp/LayerVoice.h": {
+    "mtime": 1791972392.7854092,
+    "ast_hash": "5684951741ecc10fb7f340c8c1a416d2",
+    "semantic_hash": ""
+  },
+  "Source/Dsp/PitchShifter.h": {
+    "mtime": 1791972391.1582263,
+    "ast_hash": "a7a24781c293b2d7ac5a59407a912818",
+    "semantic_hash": ""
+  },
+  "Source/Dsp/StereoDelay.h": {
+    "mtime": 1791961747.168227,
+    "ast_hash": "7a69b641be40e020e3df65d8e5a8cf77",
+    "semantic_hash": ""
+  },
+  "Source/Parameters.h": {
+    "mtime": 1791972421.9734435,
+    "ast_hash": "5f2a76d5a2bf0ce19f31ce3000b85c9a",
+    "semantic_hash": ""
+  },
+  "Source/PluginEditor.cpp": {
+    "mtime": 1791972551.2107747,
+    "ast_hash": "ae367c961deaabb344d35fa7eb816f85",
+    "semantic_hash": ""
+  },
+  "Source/PluginEditor.h": {
+    "mtime": 1791972428.0346758,
+    "ast_hash": "56430c3957847b56dae5df08c6eaea42",
+    "semantic_hash": ""
+  },
+  "Source/PluginProcessor.cpp": {
+    "mtime": 1791972427.6392593,
+    "ast_hash": "90b8b19f3b195652f27621973253ad7c",
+    "semantic_hash": ""
+  },
+  "Source/PluginProcessor.h": {
+    "mtime": 1791972424.198415,
+    "ast_hash": "b63b746de11d7cdc5e71c5830d3cfd23",
+    "semantic_hash": ""
+  },
+  "Source/Ui/LearnControls.h": {
+    "mtime": 1791964972.1809902,
+    "ast_hash": "09ea4c25ca9dd58ff55d5bf70bcdb4f8",
+    "semantic_hash": ""
+  },
+  "tests/DspTest.cpp": {
+    "mtime": 1791971817.336626,
+    "ast_hash": "a5d5b89fb179c313c37d8c1849caff99",
+    "semantic_hash": ""
+  },
+  "CMakeLists.txt": {
+    "mtime": 1791827338.7867606,
+    "ast_hash": "c34ba63feb4cc75f3d5455aea3447160",
+    "semantic_hash": ""
+  },
+  "README.md": {
+    "mtime": 1791827237.1582785,
+    "ast_hash": "86123fb95b36644080bb5b228833993e",
+    "semantic_hash": ""
+  },
+  "Resources/faceplate.png": {
+    "mtime": 1791962903.29554,
+    "ast_hash": "0753b32079ab47b80e88c0d15470fc7e",
+    "semantic_hash": ""
+  },
+  "build.sh": {
+    "mtime": 1791908671.469463,
+    "ast_hash": "6185f826592c7dc25b62a97cf2089d22",
+    "semantic_hash": ""
+  }
+}

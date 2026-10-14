@@ -46,21 +46,30 @@ public:
     int getStateGeneration() const { return stateGeneration.load(); }
 
     void armMidiLearn (const juce::String& parameterId);
+    void armMidiAction (int action);
     void cancelMidiLearn();
+    bool isMidiArmed() const { return armedParam.load() >= 0 || armedAction.load() >= 0; }
     int getArmedParameterIndex() const { return armedParam.load(); }
+    int getArmedAction() const { return armedAction.load(); }
     juce::String getArmedParameterName() const;
     void clearMidiMapping (const juce::String& parameterId);
+    void clearMidiAction (int action);
     int getMappedController (const juce::String& parameterId) const;
+    int getMappedAction (int action) const;
+    void triggerTestTone();
 
 private:
     struct MidiSlot
     {
         std::atomic<int> paramIndex { -1 };
+        std::atomic<int> action { -1 };
         std::atomic<int> channel { 0 };
     };
 
     LayerSettings settingsForLayer (int layer) const;
     void handleMidi (const juce::MidiBuffer& midi);
+    void applyAction (int action);
+    void setChoice (const juce::String& parameterId, int index);
     void clearMappingForIndex (int parameterIndex);
     void retargetMapping (int fromIndex, int toIndex);
     static float softClip (float sample);
@@ -71,28 +80,54 @@ private:
     juce::AudioBuffer<float> sum;
 
     std::atomic<float>* numLayers = nullptr;
-    std::atomic<float>* octave[kMaxLayers] {};
-    std::atomic<float>* delayTime[kMaxLayers] {};
-    std::atomic<float>* delayFeedback[kMaxLayers] {};
-    std::atomic<float>* delayDry[kMaxLayers] {};
-    std::atomic<float>* delayWet[kMaxLayers] {};
-    std::atomic<float>* delayOn[kMaxLayers] {};
-    std::atomic<float>* reverbDry[kMaxLayers] {};
-    std::atomic<float>* reverbWet[kMaxLayers] {};
-    std::atomic<float>* reverbDecay[kMaxLayers] {};
-    std::atomic<float>* reverbOn[kMaxLayers] {};
+    std::atomic<float>* octave[kDelayCount][kMaxLayers] {};
+    std::atomic<float>* delayTime[kDelayCount][kMaxLayers] {};
+    std::atomic<float>* delayFeedback[kDelayCount][kMaxLayers] {};
+    std::atomic<float>* delayDry[kDelayCount][kMaxLayers] {};
+    std::atomic<float>* delayWet[kDelayCount][kMaxLayers] {};
+    std::atomic<float>* delayOn[kDelayCount][kMaxLayers] {};
+    std::atomic<float>* reverbDry[kDelayCount][kMaxLayers] {};
+    std::atomic<float>* reverbWet[kDelayCount][kMaxLayers] {};
+    std::atomic<float>* reverbDecay[kDelayCount][kMaxLayers] {};
+    std::atomic<float>* reverbOn[kDelayCount][kMaxLayers] {};
+    std::atomic<float>* reverbType[kDelayCount][kMaxLayers] {};
+    std::atomic<float>* reverbShift[kDelayCount][kMaxLayers] {};
+    std::atomic<float>* reverbDiffusion[kDelayCount][kMaxLayers] {};
+    std::atomic<float>* reverbLow[kDelayCount][kMaxLayers] {};
+    std::atomic<float>* reverbHigh[kDelayCount][kMaxLayers] {};
     std::atomic<float>* layerLevel[kMaxLayers] {};
+    std::atomic<float>* kill = nullptr;
 
     std::array<MidiSlot, 128> midiSlots;
+    std::array<int, 128> lastCc {};
     std::atomic<int> armedParam { -1 };
+    std::atomic<int> armedAction { -1 };
     std::atomic<int> selectedLayer { 0 };
     std::atomic<int> stateGeneration { 0 };
     double currentSampleRate = 44100.0;
     bool prepared = false;
+    std::atomic<bool> testArmed { false };
+    int testSamplesLeft = 0;
+    double testPhaseA = 0.0;
+    double testPhaseB = 0.0;
+
+    void renderTestTone (juce::AudioBuffer<float>& buffer);
 
     static constexpr const char* layerParameterNames[] = {
         "octave", "delayTime", "delayFeedback", "delayDry", "delayWet", "delayOn",
-        "reverbDry", "reverbWet", "reverbDecay", "reverbOn", "level"
+        "reverbDry", "reverbWet", "reverbDecay", "reverbOn", "level",
+        "delayTime2", "delayFeedback2", "delayDry2", "delayWet2", "delayOn2",
+        "delayTime3", "delayFeedback3", "delayDry3", "delayWet3", "delayOn3",
+        "delayTime4", "delayFeedback4", "delayDry4", "delayWet4", "delayOn4",
+        "octave2", "octave3", "octave4",
+        "reverbType",
+        "reverbDry2", "reverbWet2", "reverbDecay2", "reverbOn2", "reverbType2",
+        "reverbDry3", "reverbWet3", "reverbDecay3", "reverbOn3", "reverbType3",
+        "reverbDry4", "reverbWet4", "reverbDecay4", "reverbOn4", "reverbType4",
+        "reverbShift", "reverbDiffusion", "reverbLow", "reverbHigh",
+        "reverbShift2", "reverbDiffusion2", "reverbLow2", "reverbHigh2",
+        "reverbShift3", "reverbDiffusion3", "reverbLow3", "reverbHigh3",
+        "reverbShift4", "reverbDiffusion4", "reverbLow4", "reverbHigh4"
     };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginProcessor)

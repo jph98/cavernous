@@ -45,15 +45,14 @@ int main()
     voice.prepare (sampleRate);
 
     LayerSettings delayOnly;
-    delayOnly.semitones = 0;
-    delayOnly.delayMs = 100.0f;
-    delayOnly.feedback = 0.0f;
-    delayOnly.delayDryDb = -80.0f;
-    delayOnly.delayWetDb = 0.0f;
-    delayOnly.delayOn = true;
-    delayOnly.reverbDryDb = -80.0f;
-    delayOnly.reverbWetDb = -80.0f;
-    delayOnly.reverbOn = false;
+    delayOnly.delay[0].delayMs = 100.0f;
+    delayOnly.delay[0].feedback = 0.0f;
+    delayOnly.delay[0].dryDb = -80.0f;
+    delayOnly.delay[0].wetDb = 0.0f;
+    delayOnly.delay[0].on = true;
+    delayOnly.reverb[0].dryDb = -80.0f;
+    delayOnly.reverb[0].wetDb = -80.0f;
+    delayOnly.reverb[0].on = false;
 
     juce::AudioBuffer<float> buffer (2, (int) sampleRate);
     buffer.clear();
@@ -69,9 +68,7 @@ int main()
     voice.prepare (sampleRate);
 
     LayerSettings bypassed;
-    bypassed.delayOn = false;
-    bypassed.reverbOn = false;
-    bypassed.semitones = 0;
+    bypassed.reverb[0].on = false;
 
     buffer.clear();
     for (int i = 0; i < buffer.getNumSamples(); ++i)
@@ -95,12 +92,10 @@ int main()
     voice.prepare (sampleRate);
 
     LayerSettings cave;
-    cave.delayOn = false;
-    cave.reverbOn = true;
-    cave.reverbDryDb = -80.0f;
-    cave.reverbWetDb = 0.0f;
-    cave.decaySeconds = 2.0f;
-    cave.semitones = 0;
+    cave.reverb[0].on = true;
+    cave.reverb[0].dryDb = -80.0f;
+    cave.reverb[0].wetDb = 0.0f;
+    cave.reverb[0].decaySeconds = 2.0f;
 
     buffer.clear();
     buffer.setSample (0, 0, 1.0f);
@@ -118,6 +113,135 @@ int main()
 
     expect (earlyEnergy > 1.0f, "reverb produces a tail");
     expect (earlyEnergy > lateEnergy, "reverb tail decays");
+
+    voice.reset();
+    voice.prepare (sampleRate);
+
+    LayerSettings second;
+    second.delay[1].delayMs = 150.0f;
+    second.delay[1].feedback = 0.0f;
+    second.delay[1].dryDb = -80.0f;
+    second.delay[1].wetDb = 0.0f;
+    second.delay[1].on = true;
+    second.reverb[0].on = false;
+
+    buffer.clear();
+    buffer.setSample (0, 0, 0.8f);
+    buffer.setSample (1, 0, 0.8f);
+    voice.process (buffer, second);
+    expect (peakAround (buffer, 7200, 120) > 0.2f, "delay 2 repeats at 150 ms");
+
+    auto lateEnergyOf = [&] (float decay)
+    {
+        voice.reset();
+        voice.prepare (sampleRate);
+        LayerSettings ringing = cave;
+        ringing.reverb[0].decaySeconds = decay;
+        ringing.reverb[0].type = 0;
+        buffer.clear();
+        buffer.setSample (0, 0, 1.0f);
+        buffer.setSample (1, 0, 1.0f);
+        voice.process (buffer, ringing);
+
+        float energy = 0.0f;
+        for (int i = 36000; i < 44000; ++i)
+            energy += std::abs (buffer.getSample (0, i));
+        return energy;
+    };
+
+    const float held = lateEnergyOf (10.0f);
+    const float shortTail = lateEnergyOf (2.0f);
+    expect (held > shortTail * 1.5f, "long decay keeps more of the tail");
+
+    for (int type = 0; type < 6; ++type)
+    {
+        voice.reset();
+        voice.prepare (sampleRate);
+        LayerSettings kind = cave;
+        kind.reverb[0].type = type;
+        kind.reverb[0].decaySeconds = 10.0f;
+        buffer.clear();
+        buffer.setSample (0, 0, 1.0f);
+        buffer.setSample (1, 0, 1.0f);
+        voice.process (buffer, kind);
+        expect (finiteBuffer (buffer), "reverb type stays finite");
+    }
+
+    auto staysBounded = [&] (LayerSettings settings, const char* name, float seconds)
+    {
+        voice.reset();
+        voice.prepare (sampleRate);
+        juce::AudioBuffer<float> block (2, 512);
+        float peak = 0.0f;
+        bool finite = true;
+        const int blocks = (int) (seconds * sampleRate / 512.0);
+
+        for (int b = 0; b < blocks; ++b)
+        {
+            for (int i = 0; i < 512; ++i)
+            {
+                const float t = (float) (b * 512 + i) / (float) sampleRate;
+                const float sample = 0.25f * std::sin (2.0f * juce::MathConstants<float>::pi * 220.0f * t);
+                block.setSample (0, i, sample);
+                block.setSample (1, i, sample);
+            }
+
+            voice.process (block, settings);
+            if (! finiteBuffer (block))
+                finite = false;
+
+            for (int i = 0; i < 512; ++i)
+                peak = std::max (peak, std::abs (block.getSample (0, i)));
+        }
+
+        expect (finite, name);
+        expect (peak < 6.0f, name);
+    };
+
+    LayerSettings shimmering;
+    shimmering.reverb[0].on = true;
+    shimmering.reverb[0].type = 5;
+    shimmering.reverb[0].dryDb = 0.0f;
+    shimmering.reverb[0].wetDb = 0.0f;
+    shimmering.reverb[0].decaySeconds = 4.0f;
+    staysBounded (shimmering, "shimmer stays bounded", 20.0f);
+
+    voice.reset();
+    voice.prepare (sampleRate);
+    buffer.clear();
+    buffer.setSample (0, 0, 1.0f);
+    buffer.setSample (1, 0, 1.0f);
+    voice.process (buffer, shimmering);
+    expect (finiteBuffer (buffer), "shimmer impulse stays finite");
+    float shimmerEarly = 0.0f;
+    float shimmerLate = 0.0f;
+    for (int i = 2000; i < 8000; ++i)
+        shimmerEarly += std::abs (buffer.getSample (0, i));
+    for (int i = 36000; i < 44000; ++i)
+        shimmerLate += std::abs (buffer.getSample (0, i));
+    expect (shimmerEarly > shimmerLate, "shimmer tail dies away instead of regenerating");
+
+    LayerSettings hotDelays;
+    hotDelays.reverb[0].on = false;
+    for (int d = 0; d < 4; ++d)
+    {
+        hotDelays.delay[(size_t) d].on = true;
+        hotDelays.delay[(size_t) d].feedback = 100.0f;
+        hotDelays.delay[(size_t) d].wetDb = 6.0f;
+        hotDelays.delay[(size_t) d].dryDb = 0.0f;
+    }
+    staysBounded (hotDelays, "stacked delays stay bounded", 12.0f);
+
+    LayerSettings extreme;
+    extreme.delay[0].on = true;
+    extreme.delay[0].feedback = 0.0f;
+    extreme.delay[0].dryDb = 0.0f;
+    extreme.delay[0].wetDb = 0.0f;
+    extreme.reverb[0].on = false;
+    extreme.delay[0].semitones = 48;
+    staysBounded (extreme, "plus four octaves stays finite", 2.0f);
+    extreme.delay[0].semitones = -48;
+    staysBounded (extreme, "minus four octaves stays finite", 2.0f);
 
     if (failures != 0)
     {

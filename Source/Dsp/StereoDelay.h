@@ -71,12 +71,18 @@ public:
             for (int ch = 0; ch < channels; ++ch)
             {
                 const float in = audio.getSample (ch, i);
-                const float delayed = read (ch, delaySamples);
-                tone[(size_t) ch] += (delayed - tone[(size_t) ch]) * 0.32f;
-                const float loop = std::tanh (tone[(size_t) ch] * (fb * 1.15f));
-                buffer[(size_t) ch][(size_t) write] = in + loop;
+                float delayed = read (ch, delaySamples);
+                if (! std::isfinite (delayed))
+                    delayed = 0.0f;
 
-                const float effected = in * dryGain + delayed * wetGain;
+                tone[(size_t) ch] += (delayed - tone[(size_t) ch]) * 0.32f;
+                if (! std::isfinite (tone[(size_t) ch]))
+                    tone[(size_t) ch] = 0.0f;
+
+                const float loop = fb * std::tanh (tone[(size_t) ch]);
+                buffer[(size_t) ch][(size_t) write] = contain (in + loop);
+
+                const float effected = contain (in * dryGain + delayed * wetGain);
                 audio.setSample (ch, i, in + (effected - in) * mix);
             }
 
@@ -113,6 +119,21 @@ private:
         const float c2 = xm1 - 2.5f * x0 + 2.0f * x1 - 0.5f * x2;
         const float c3 = 0.5f * (x2 - xm1) + 1.5f * (x0 - x1);
         return ((c3 * frac + c2) * frac + c1) * frac + x0;
+    }
+
+    // Leaves ordinary levels untouched and stops a feedback cascade climbing without bound.
+    static float contain (float sample)
+    {
+        if (! std::isfinite (sample))
+            return 0.0f;
+
+        constexpr float threshold = 1.5f;
+        const float magnitude = std::abs (sample);
+        if (magnitude <= threshold)
+            return sample;
+
+        const float sign = sample < 0.0f ? -1.0f : 1.0f;
+        return sign * (threshold + 0.5f * std::tanh ((magnitude - threshold) / 0.5f));
     }
 
     double sr = 48000.0;

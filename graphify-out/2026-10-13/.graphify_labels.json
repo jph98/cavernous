@@ -1,0 +1,18 @@
+{
+  "0": "content",
+  "1": "PluginProcessor",
+  "2": "CavernReverb",
+  "3": "LearnButton",
+  "4": "LayerVoice",
+  "5": "PluginEditor",
+  "6": "StereoDelay",
+  "7": "PluginProcessor.cpp",
+  "8": "PitchShifter",
+  "9": "LayerVoice.h",
+  "10": "GlowLed",
+  "11": "applyAction",
+  "12": "processBlock",
+  "13": "Cavernous",
+  "14": "String",
+  "15": "createEditor"
+}

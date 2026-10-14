@@ -1,0 +1,72 @@
+{
+  "Source/Dsp/CavernReverb.h": {
+    "mtime": 1791907359.2190683,
+    "ast_hash": "3b6c309ffae2fbbab091b01d183bc572",
+    "semantic_hash": ""
+  },
+  "Source/Dsp/LayerVoice.h": {
+    "mtime": 1791907084.2780247,
+    "ast_hash": "2764906a69e8fec772224ef0f295ffd4",
+    "semantic_hash": ""
+  },
+  "Source/Dsp/PitchShifter.h": {
+    "mtime": 1791826936.8516269,
+    "ast_hash": "697e529763cdf4aa05e1d7cbe08c215c",
+    "semantic_hash": ""
+  },
+  "Source/Dsp/StereoDelay.h": {
+    "mtime": 1791826950.1381874,
+    "ast_hash": "741ada632eea01b700b4a249184c9fdc",
+    "semantic_hash": ""
+  },
+  "Source/Parameters.h": {
+    "mtime": 1791907187.6106708,
+    "ast_hash": "09a7e14208e178acfc0dab8422174a07",
+    "semantic_hash": ""
+  },
+  "Source/PluginEditor.cpp": {
+    "mtime": 1791907646.0806267,
+    "ast_hash": "d9778e2d54097a9c0b21f79f846e4513",
+    "semantic_hash": ""
+  },
+  "Source/PluginEditor.h": {
+    "mtime": 1791907251.521424,
+    "ast_hash": "4cf745b54face8ad2fdfb90c3db76fa7",
+    "semantic_hash": ""
+  },
+  "Source/PluginProcessor.cpp": {
+    "mtime": 1791907218.8171046,
+    "ast_hash": "f16a5ccd561b4b037031d28fd8ddeade",
+    "semantic_hash": ""
+  },
+  "Source/PluginProcessor.h": {
+    "mtime": 1791907194.6688404,
+    "ast_hash": "fe1bcf979ac497330e9be0366011f10f",
+    "semantic_hash": ""
+  },
+  "Source/Ui/LearnControls.h": {
+    "mtime": 1791907074.378935,
+    "ast_hash": "8a90f63f1a1626e22adb22ee6a259d05",
+    "semantic_hash": ""
+  },
+  "tests/DspTest.cpp": {
+    "mtime": 1791907297.5810685,
+    "ast_hash": "6011b1fadd081b6cb31510d2c2fb4352",
+    "semantic_hash": ""
+  },
+  "CMakeLists.txt": {
+    "mtime": 1791827338.7867606,
+    "ast_hash": "c34ba63feb4cc75f3d5455aea3447160",
+    "semantic_hash": ""
+  },
+  "README.md": {
+    "mtime": 1791827237.1582785,
+    "ast_hash": "86123fb95b36644080bb5b228833993e",
+    "semantic_hash": ""
+  },
+  "Resources/faceplate.png": {
+    "mtime": 1791907435.943782,
+    "ast_hash": "074a3001f9e3499471677199a77f914b",
+    "semantic_hash": ""
+  }
+}

@@ -9,7 +9,7 @@
 namespace BinaryData
 {
     extern const char*   faceplate_png;
-    const int            faceplate_pngSize = 1573869;
+    const int            faceplate_pngSize = 1345643;
 
     // Number of elements in the namedResourceList and originalFileNames arrays.
     const int namedResourceListSize = 1;

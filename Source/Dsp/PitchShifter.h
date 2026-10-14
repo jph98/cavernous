@@ -9,9 +9,9 @@
 class PitchShifter
 {
 public:
-    void prepare (double sampleRate)
+    void prepare (double sampleRate, double windowSeconds = 0.045)
     {
-        window = juce::jmax (32, (int) std::round (0.045 * sampleRate));
+        window = juce::jmax (32, (int) std::round (windowSeconds * sampleRate));
         const int needed = window * 2 + 16;
         size = juce::nextPowerOfTwo (needed);
         mask = size - 1;
@@ -37,7 +37,7 @@ public:
 
     void process (juce::AudioBuffer<float>& audio, int semitones)
     {
-        semitones = juce::jlimit (-24, 24, semitones);
+        semitones = juce::jlimit (-48, 48, semitones);
 
         if (semitones != pendingSemitones)
         {
@@ -96,6 +96,41 @@ public:
 
             write = (write + 1) & mask;
         }
+    }
+
+    // Full-wet pitch shift for the shimmer feedback loop. Semitones may be
+    // fractional. Zero is a true bypass, still writing the delay line.
+    void shiftBy (float& left, float& right, float semitones)
+    {
+        if (size <= 0)
+            return;
+
+        buffer[0][(size_t) write] = std::isfinite (left) ? left : 0.0f;
+        buffer[1][(size_t) write] = std::isfinite (right) ? right : 0.0f;
+
+        semitones = juce::jlimit (-12.0f, 12.0f, semitones);
+
+        if (std::abs (semitones) >= 0.02f)
+        {
+            const float ratio = std::pow (2.0f, semitones / 12.0f);
+            phase += (1.0f - ratio) / (float) window;
+            while (phase >= 1.0f)
+                phase -= 1.0f;
+            while (phase < 0.0f)
+                phase += 1.0f;
+
+            float phaseB = phase + 0.5f;
+            if (phaseB >= 1.0f)
+                phaseB -= 1.0f;
+
+            const float wA = hann (phase);
+            const float wB = hann (phaseB);
+            const float norm = juce::jmax (1.0e-5f, wA + wB);
+            left = (read (0, phase) * wA + read (0, phaseB) * wB) / norm;
+            right = (read (1, phase) * wA + read (1, phaseB) * wB) / norm;
+        }
+
+        write = (write + 1) & mask;
     }
 
 private:
