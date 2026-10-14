@@ -5112,6 +5112,7 @@ CMakeFiles/CavernousDspTest.dir/tests/DspTest.cpp.o: /Users/jon/workspace-ai/Cav
   /Users/jon/workspace-ai/Cavernous/Source/Dsp/LayerVoice.h \
   /Users/jon/workspace-ai/Cavernous/Source/Dsp/PitchShifter.h \
   /Users/jon/workspace-ai/Cavernous/Source/Dsp/StereoDelay.h \
+  /Users/jon/workspace-ai/Cavernous/Source/Dsp/ToneSource.h \
   _deps/juce-src/modules/juce_audio_basics/audio_play_head/juce_AudioPlayHead.h \
   _deps/juce-src/modules/juce_audio_basics/buffers/juce_AudioChannelSet.h \
   _deps/juce-src/modules/juce_audio_basics/buffers/juce_AudioDataConverters.h \
@@ -10210,6 +10211,8 @@ _deps/juce-src/modules/juce_core/containers/juce_SparseSet.h:
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/CoreServices.framework/Frameworks/AE.framework/Headers/AEDataModel.h:
 
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/ApplicationServices.framework/Frameworks/HIServices.framework/Headers/AXWebConstants.h:
+
+/Users/jon/workspace-ai/Cavernous/Source/Dsp/ToneSource.h:
 
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/ApplicationServices.framework/Frameworks/HIServices.framework/Headers/AXValue.h:
 

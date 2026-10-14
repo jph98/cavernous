@@ -3,7 +3,9 @@
 #include "PitchShifter.h"
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <array>
+#include <atomic>
 #include <cmath>
+#include <cstdint>
 #include <vector>
 
 // Eight-line feedback delay network with a decay time in seconds.
@@ -20,7 +22,7 @@ public:
         {
             lengths[i] = juce::jmax (64, (int) std::round (baseDelays[i] * scale));
             activeLength[i] = lengths[i];
-            tank[(size_t) i].assign ((size_t) lengths[i] * 3 / 2, 0.0f);
+            tank[(size_t) i].assign ((size_t) lengths[i] * 3, 0.0f);
             position[i] = 0;
             lowpass[i] = 0.0f;
             gain[i] = 0.4f;
@@ -35,7 +37,7 @@ public:
             allpassPos[i] = 0;
         }
 
-        earlyLength = (int) std::round (0.16 * sampleRate) + 8;
+        earlyLength = (int) std::round (0.30 * sampleRate) + 8;
         early[0].assign ((size_t) earlyLength, 0.0f);
         early[1].assign ((size_t) earlyLength, 0.0f);
         earlyPos = 0;
@@ -43,6 +45,9 @@ public:
         static constexpr float tapMs[6] = { 23.0f, 37.0f, 51.0f, 68.0f, 89.0f, 113.0f };
         for (int i = 0; i < 6; ++i)
             taps[i] = juce::jlimit (1, earlyLength - 2, (int) std::round (tapMs[i] * 0.001 * sampleRate));
+
+        for (int i = 0; i < 6; ++i)
+            activeTaps[i] = taps[i];
 
         dry.reset (sampleRate, 0.03);
         wet.reset (sampleRate, 0.03);
@@ -59,6 +64,7 @@ public:
         highCutSmooth.setCurrentAndTargetValue (8000.0f);
         primed = false;
         currentType = -1;
+        currentSize = -1.0f;
         reset();
     }
 
@@ -83,6 +89,11 @@ public:
         lastDecay = -1.0f;
         shimmerShift.reset();
         shimmerFeedbackL = shimmerFeedbackR = 0.0f;
+        knockArmed.store (false);
+        knockLeft = 0;
+        knockChirp = 0.0;
+        knockThud = 0.0;
+        knockSpring[0] = knockSpring[1] = knockSpring[2] = 0.0;
         for (int i = 0; i < 2; ++i)
         {
             feedbackHpL[i] = feedbackHpR[i] = 0.0f;
@@ -91,9 +102,10 @@ public:
     }
 
     void setParameters (float dryDb, float wetDb, float decaySeconds, int type, bool enabled,
-                        float shiftSemitones, float diffusionPercent, float lowCutHz, float highCutHz)
+                        float shiftSemitones, float diffusionPercent, float lowCutHz, float highCutHz,
+                        float sizePercent = 100.0f)
     {
-        applyType (type);
+        applySpace (type, sizePercent);
         shiftSmooth.setTargetValue (juce::jlimit (-12.0f, 12.0f, shiftSemitones));
         diffusionSmooth.setTargetValue (juce::jlimit (0.0f, 100.0f, diffusionPercent));
         lowCutSmooth.setTargetValue (juce::jlimit (20.0f, 2000.0f, lowCutHz));
@@ -120,7 +132,16 @@ public:
         }
     }
 
-    void process (juce::AudioBuffer<float>& audio)
+    // Kick the spring tank at a chosen pitch. Safe from the UI thread.
+    void knock (float pitchHz = 185.0f) noexcept
+    {
+        knockPitch.store (juce::jlimit (40.0f, 1200.0f, pitchHz));
+        knockArmed.store (true);
+    }
+
+    // A held drone is mixed into the tank only, scaled so the loop settles
+    // instead of running away. It is not added to the dry feed.
+    void process (juce::AudioBuffer<float>& audio, const juce::AudioBuffer<float>* drone = nullptr)
     {
         const int numSamples = audio.getNumSamples();
         auto* left = audio.getWritePointer (0);
@@ -143,6 +164,63 @@ public:
 
             const float inL = left[i];
             const float inR = right[i];
+            const float dryGain = dry.getNextValue();
+            const float wetGain = wet.getNextValue();
+            const float mix = bypass.getNextValue();
+
+            if (knockArmed.exchange (false))
+            {
+                knockHz = juce::jlimit (40.0f, 1200.0f, knockPitch.load());
+                knockDetune = 1.013f + nextKnockNoise() * 0.006f;
+                knockLeft = juce::jmax (1, (int) std::round (0.46 * sr));
+                knockTotal = knockLeft;
+                knockChirp = knockThud = 0.0;
+                knockSpring[0] = knockSpring[1] = knockSpring[2] = 0.0;
+            }
+
+            float knockSample = 0.0f;
+            if (knockLeft > 0)
+            {
+                const float elapsed = (float) (knockTotal - knockLeft) / (float) sr;
+                const float impact = nextKnockNoise() * std::exp (-elapsed * 280.0f);
+                const float chirpT = juce::jlimit (0.0f, 1.0f, elapsed / 0.075f);
+                const float chirpHz = knockHz * std::pow (4.2f, 1.0f - chirpT);
+                knockChirp += juce::MathConstants<double>::twoPi * (double) chirpHz / sr;
+                const float chirp = std::sin ((float) knockChirp) * std::exp (-elapsed * 16.0f);
+
+                const float partialHz[3] = { knockHz, knockHz * knockDetune, knockHz * 2.73f };
+                constexpr float partialGain[3] = { 0.62f, 0.48f, 0.22f };
+                float ring = 0.0f;
+
+                for (int partial = 0; partial < 3; ++partial)
+                {
+                    knockSpring[partial] += juce::MathConstants<double>::twoPi * (double) partialHz[partial] / sr;
+                    if (knockSpring[partial] > juce::MathConstants<double>::twoPi)
+                        knockSpring[partial] -= juce::MathConstants<double>::twoPi;
+                    ring += std::sin ((float) knockSpring[partial]) * partialGain[partial];
+                }
+
+                const float bounce = 0.82f + 0.18f * std::sin (elapsed * 78.0f);
+                ring *= std::exp (-elapsed * 5.8f) * bounce;
+
+                knockThud += juce::MathConstants<double>::twoPi * (double) knockHz * 0.48 / sr;
+                const float thud = std::sin ((float) knockThud) * std::exp (-elapsed * 26.0f);
+                knockSample = impact * 0.9f + chirp * 0.62f + ring * 0.5f + thud * 0.4f;
+
+                if (! std::isfinite (knockSample))
+                    knockSample = 0.0f;
+
+                --knockLeft;
+            }
+
+            float exciteL = 0.0f;
+            float exciteR = 0.0f;
+            if (drone != nullptr && i < drone->getNumSamples() && drone->getNumChannels() > 0)
+            {
+                exciteL = drone->getSample (0, i);
+                exciteR = drone->getNumChannels() > 1 ? drone->getSample (1, i) : exciteL;
+            }
+
             const float srcL = inL + shimmerFeedbackL;
             const float srcR = inR + shimmerFeedbackR;
 
@@ -172,7 +250,10 @@ public:
             for (int line = 0; line < 8; ++line)
             {
                 const float injection = ((line & 1) != 0 ? diffusedR : diffused) * 0.32f;
-                float written = mixed[line] * gain[line] + injection;
+                const float room = juce::jlimit (0.0f, 1.0f, 1.0f - targetGain[line]) * mix;
+                const float excite = ((line & 1) != 0 ? exciteR : exciteL) * room * 0.45f;
+                static constexpr float knockSign[8] = { 1.0f, -0.85f, 0.7f, -1.0f, 0.9f, -0.6f, 0.75f, -0.8f };
+                float written = mixed[line] * gain[line] + injection + excite + knockSample * knockSign[line];
                 if (softLimit)
                     written = softClip (written);
                 tank[(size_t) line][(size_t) position[line]] = contain (written);
@@ -192,7 +273,7 @@ public:
 
             for (int tap = 0; tap < 6; ++tap)
             {
-                int index = earlyPos - taps[tap];
+                int index = earlyPos - activeTaps[tap];
                 if (index < 0)
                     index += earlyLength;
 
@@ -212,8 +293,8 @@ public:
             if (++earlyPos >= earlyLength)
                 earlyPos = 0;
 
-            float wetL = tankL + earlyL * earlyMix;
-            float wetR = tankR + earlyR * earlyMix;
+            float wetL = tankL + earlyL * earlyMix + knockSample * 0.9f;
+            float wetR = tankR + earlyR * earlyMix + knockSample * 0.75f;
             shimmerFeedbackL = 0.0f;
             shimmerFeedbackR = 0.0f;
 
@@ -254,9 +335,6 @@ public:
                     wetR += upR * 0.48f;
                 }
             }
-            const float dryGain = dry.getNextValue();
-            const float wetGain = wet.getNextValue();
-            const float mix = bypass.getNextValue();
             const float outL = inL * dryGain + wetL * wetGain;
             const float outR = inR * dryGain + wetR * wetGain;
 
@@ -280,42 +358,65 @@ private:
         }
     }
 
-    void applyType (int type)
+    void applySpace (int type, float sizePercent)
     {
         type = juce::jlimit (0, 5, type);
-        if (type == currentType)
+        const float size = juce::jlimit (0.2f, 2.0f, sizePercent * 0.01f);
+        const bool typeChanged = type != currentType;
+        const bool sizeChanged = std::abs (size - currentSize) >= 0.002f;
+
+        if (! typeChanged && ! sizeChanged)
             return;
 
-        currentType = type;
+        currentSize = size;
         lastDecay = -1.0f;
 
-        float scale = 1.0f;
-        damping = 0.42f;
-        earlyMix = 0.65f;
-        shimmer = 0.0f;
-        modDepth = 0.0f;
-        float diffusion = 1.0f;
-
-        switch (type)
+        if (typeChanged)
         {
-            case 1: scale = 0.42f; damping = 0.78f; earlyMix = 0.35f; diffusion = 1.15f; break;
-            case 2: scale = 1.35f; damping = 0.30f; earlyMix = 0.90f; diffusion = 0.95f; break;
-            case 3: scale = 0.28f; damping = 0.62f; earlyMix = 1.15f; diffusion = 1.05f; break;
-            case 4: scale = 0.58f; damping = 0.74f; earlyMix = 0.22f; diffusion = 0.85f; modDepth = 14.0f; break;
-            case 5: shimmer = 1.0f; scale = 1.22f; damping = 0.55f; earlyMix = 0.72f; modDepth = 8.0f; break;
-            default: break;
+            currentType = type;
+            typeScale = 1.0f;
+            damping = 0.42f;
+            earlyMix = 0.65f;
+            shimmer = 0.0f;
+            modDepth = 0.0f;
+            float diffusion = 1.0f;
+
+            switch (type)
+            {
+                case 1: typeScale = 0.42f; damping = 0.78f; earlyMix = 0.35f; diffusion = 1.15f; break;
+                case 2: typeScale = 1.35f; damping = 0.30f; earlyMix = 0.90f; diffusion = 0.95f; break;
+                case 3: typeScale = 0.28f; damping = 0.62f; earlyMix = 1.15f; diffusion = 1.05f; break;
+                case 4: typeScale = 0.58f; damping = 0.74f; earlyMix = 0.22f; diffusion = 0.85f; modDepth = 14.0f; break;
+                case 5: shimmer = 1.0f; typeScale = 1.22f; damping = 0.55f; earlyMix = 0.72f; modDepth = 8.0f; break;
+                default: break;
+            }
+
+            const float bases[4] = { 0.62f, 0.55f, 0.6f, 0.5f };
+            for (int i = 0; i < 4; ++i)
+                coeff[i] = juce::jmin (0.9f, bases[i] * diffusion);
         }
 
-        const float bases[4] = { 0.62f, 0.55f, 0.6f, 0.5f };
-        for (int i = 0; i < 4; ++i)
-            coeff[i] = juce::jmin (0.9f, bases[i] * diffusion);
+        const float fitted = typeScale * size;
 
         for (int i = 0; i < 8; ++i)
         {
             const int capacity = (int) tank[(size_t) i].size();
-            activeLength[i] = juce::jlimit (8, juce::jmax (8, capacity), (int) std::round ((float) lengths[i] * scale));
-            position[i] %= activeLength[i];
+            activeLength[i] = juce::jlimit (8, juce::jmax (8, capacity), (int) std::round ((float) lengths[i] * fitted));
+            if (activeLength[i] > 0)
+                position[i] %= activeLength[i];
         }
+
+        for (int tap = 0; tap < 6; ++tap)
+            activeTaps[tap] = juce::jlimit (1, juce::jmax (1, earlyLength - 2),
+                                            (int) std::round ((float) taps[tap] * size));
+    }
+
+    float nextKnockNoise()
+    {
+        knockRng ^= knockRng << 13;
+        knockRng ^= knockRng >> 17;
+        knockRng ^= knockRng << 5;
+        return (float) ((int) (knockRng & 0x7fffffffu) / 1073741824.0) - 1.0f;
     }
 
     float readTank (int line) const
@@ -414,6 +515,8 @@ private:
     int activeLength[8] {};
     int position[8] {};
     int currentType = -1;
+    float currentSize = -1.0f;
+    float typeScale = 1.0f;
     float damping = 0.42f;
     float earlyMix = 0.65f;
     float shimmer = 0.0f;
@@ -442,6 +545,17 @@ private:
     int earlyLength = 0;
     int earlyPos = 0;
     int taps[6] {};
+    int activeTaps[6] {};
+    std::atomic<bool> knockArmed { false };
+    std::atomic<float> knockPitch { 185.0f };
+    int knockLeft = 0;
+    int knockTotal = 1;
+    float knockHz = 185.0f;
+    float knockDetune = 1.013f;
+    double knockChirp = 0.0;
+    double knockThud = 0.0;
+    double knockSpring[3] {};
+    uint32_t knockRng = 0x51A7C3E1u;
 
     float lastDecay = -1.0f;
     bool primed = false;

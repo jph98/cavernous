@@ -1,14 +1,35 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "Dsp/ToneSource.h"
 
 inline constexpr int kMaxLayers = 8;
 inline constexpr int kDelayCount = 4;
 inline constexpr int kReverbTypeCount = 6;
+inline constexpr int kShimmerType = 5;
 
 inline constexpr int addLayerAction = 1;
 inline constexpr int removeLayerAction = 2;
 inline constexpr int testToneAction = 3;
+inline constexpr int killTrailsAction = 4;
+inline constexpr int knockAction = 5;
+inline constexpr int killAllAction = 6;
+inline constexpr int fadeAction = 7;
+inline constexpr int fadeAllAction = 8;
+
+inline int toneKeyAction (int key) { return 800 + juce::jlimit (0, kToneKeyCount - 1, key); }
+inline int toneOctaveAction (int octave)
+{
+    return 820 + juce::jlimit (0, kToneOctaveMax - kToneOctaveMin, octave - kToneOctaveMin);
+}
+inline int toneOvertonesAction (int count) { return 830 + juce::jlimit (0, kToneOvertoneMax, count); }
+inline int toneNoiseAction (int colour) { return 840 + juce::jlimit (0, kNoiseColourCount - 1, colour); }
+inline int droneModeAction (int mode) { return 850 + juce::jlimit (0, kDroneModeCount - 1, mode); }
+
+inline juce::String droneDegreeParam (int degree)
+{
+    return "drone" + juce::String (degree + 1);
+}
 
 inline int selectLayerAction (int layer) { return 10 + layer; }
 inline int octaveStepAction (int layer, int delay, int step)
@@ -90,7 +111,17 @@ inline juce::String actionName (int action)
     if (action == removeLayerAction)
         return "Remove Layer";
     if (action == testToneAction)
-        return "Test Tone";
+        return "Generate Tone";
+    if (action == killTrailsAction)
+        return "Kill Trails";
+    if (action == knockAction)
+        return "Kick Tank";
+    if (action == killAllAction)
+        return "Kill Em All";
+    if (action == fadeAction)
+        return "Fade Out";
+    if (action == fadeAllAction)
+        return "Fade All";
     if (action >= 10 && action < 10 + kMaxLayers)
         return "Layer " + juce::String (action - 9);
     if (action >= 100 && action < 100 + kMaxLayers * 8)
@@ -118,6 +149,17 @@ inline juce::String actionName (int action)
         return "Delay " + juce::String (delay + 1) + " " + reverbTypeName (type);
     }
 
+    if (action >= 800 && action < 800 + kToneKeyCount)
+        return juce::String (toneKeyName (action - 800)) + " Tone";
+    if (action >= 820 && action < 820 + (kToneOctaveMax - kToneOctaveMin + 1))
+        return "Tone Octave " + juce::String (kToneOctaveMin + (action - 820));
+    if (action >= 830 && action < 830 + kToneOvertoneMax + 1)
+        return "Overtones " + juce::String (action - 830);
+    if (action >= 840 && action < 840 + kNoiseColourCount)
+        return juce::String (noiseColourName (action - 840)) + " Noise";
+    if (action >= 850 && action < 850 + kDroneModeCount)
+        return juce::String (droneModeName (action - 850)) + " Drone";
+
     return "Control";
 }
 
@@ -132,6 +174,22 @@ inline juce::String delayFieldName (const char* field, int delayIndex)
 inline juce::String layerParam (const char* name, int layer)
 {
     return juce::String (name) + "_" + juce::String (layer);
+}
+
+// Layer 1 keeps the original unsuffixed tone and drone ids. Later layers are appended.
+inline juce::String toneLayerParam (const char* name, int layer)
+{
+    if (layer <= 0)
+        return name;
+
+    return layerParam (name, layer);
+}
+
+inline bool isToneLayerParameter (const char* name)
+{
+    const juce::String text (name);
+    return text.startsWith ("tone") || text.startsWith ("drone") || text == "fadeRelease"
+           || text == "kickPitch";
 }
 
 inline juce::NormalisableRange<float> logRange (float start, float end)
@@ -394,6 +452,161 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout
                 8000.0f,
                 floatAttrs ("Hz")));
         }
+    }
+
+    juce::StringArray toneKeys;
+    for (int key = 0; key < kToneKeyCount; ++key)
+        toneKeys.add (toneKeyName (key));
+
+    params.push_back (std::make_unique<AudioParameterChoice> (
+        ParameterID { "toneKey", 1 }, "Tone Key", toneKeys, 0));
+    params.push_back (std::make_unique<AudioParameterInt> (
+        ParameterID { "toneOctave", 1 }, "Tone Octave", kToneOctaveMin, kToneOctaveMax, 3));
+    params.push_back (std::make_unique<AudioParameterInt> (
+        ParameterID { "toneOvertones", 1 }, "Tone Overtones", 0, kToneOvertoneMax, 2));
+
+    juce::StringArray noiseColours;
+    for (int colour = 0; colour < kNoiseColourCount; ++colour)
+        noiseColours.add (noiseColourName (colour));
+
+    params.push_back (std::make_unique<AudioParameterChoice> (
+        ParameterID { "toneNoise", 1 }, "Tone Noise", noiseColours, 0));
+
+    const auto lengthAttrs = AudioParameterFloatAttributes()
+                                 .withLabel ("s")
+                                 .withStringFromValueFunction ([] (float value, int) { return String (value, 2) + " s"; })
+                                 .withValueFromStringFunction ([] (const String& text) { return text.getFloatValue(); });
+
+    params.push_back (std::make_unique<AudioParameterFloat> (
+        ParameterID { "toneLength", 1 }, "Tone Length", logRange (0.1f, 30.0f), 1.0f, lengthAttrs));
+
+    juce::StringArray droneModes;
+    for (int mode = 0; mode < kDroneModeCount; ++mode)
+        droneModes.add (droneModeName (mode));
+
+    params.push_back (std::make_unique<AudioParameterChoice> (
+        ParameterID { "droneMode", 1 }, "Drone Mode", droneModes, 0));
+    params.push_back (std::make_unique<AudioParameterBool> (
+        ParameterID { "droneOn", 1 }, "Drone", false));
+
+    for (int degree = 0; degree < kDroneDegreeCount; ++degree)
+    {
+        const bool home = degree == 0 || degree == 4;
+        params.push_back (std::make_unique<AudioParameterBool> (
+            ParameterID { droneDegreeParam (degree), 1 },
+            "Drone " + String (degree + 1),
+            home));
+    }
+
+    for (int i = 0; i < kMaxLayers; ++i)
+    {
+        const auto suffix = " " + String (i + 1);
+
+        for (int delay = 0; delay < kDelayCount; ++delay)
+        {
+            const auto label = "Reverb " + String (delay + 1);
+            params.push_back (std::make_unique<AudioParameterFloat> (
+                ParameterID { layerParam (delayFieldName ("reverbSize", delay).toRawUTF8(), i), 1 },
+                label + " Size" + suffix,
+                NormalisableRange<float> (20.0f, 200.0f),
+                100.0f,
+                floatAttrs ("%")));
+        }
+    }
+
+    for (int layer = 1; layer < kMaxLayers; ++layer)
+    {
+        const auto suffix = " " + String (layer + 1);
+
+        params.push_back (std::make_unique<AudioParameterChoice> (
+            ParameterID { toneLayerParam ("toneKey", layer), 1 }, "Tone Key" + suffix, toneKeys, 0));
+        params.push_back (std::make_unique<AudioParameterInt> (
+            ParameterID { toneLayerParam ("toneOctave", layer), 1 },
+            "Tone Octave" + suffix, kToneOctaveMin, kToneOctaveMax, 3));
+        params.push_back (std::make_unique<AudioParameterInt> (
+            ParameterID { toneLayerParam ("toneOvertones", layer), 1 },
+            "Tone Overtones" + suffix, 0, kToneOvertoneMax, 2));
+        params.push_back (std::make_unique<AudioParameterChoice> (
+            ParameterID { toneLayerParam ("toneNoise", layer), 1 }, "Tone Noise" + suffix, noiseColours, 0));
+        params.push_back (std::make_unique<AudioParameterFloat> (
+            ParameterID { toneLayerParam ("toneLength", layer), 1 },
+            "Tone Length" + suffix, logRange (0.1f, 30.0f), 1.0f, lengthAttrs));
+        params.push_back (std::make_unique<AudioParameterChoice> (
+            ParameterID { toneLayerParam ("droneMode", layer), 1 }, "Drone Mode" + suffix, droneModes, 0));
+        params.push_back (std::make_unique<AudioParameterBool> (
+            ParameterID { toneLayerParam ("droneOn", layer), 1 }, "Drone" + suffix, false));
+
+        for (int degree = 0; degree < kDroneDegreeCount; ++degree)
+        {
+            const bool home = degree == 0 || degree == 4;
+            params.push_back (std::make_unique<AudioParameterBool> (
+                ParameterID { toneLayerParam (droneDegreeParam (degree).toRawUTF8(), layer), 1 },
+                "Drone " + String (degree + 1) + suffix,
+                home));
+        }
+    }
+
+    const auto pitchAttrs = AudioParameterFloatAttributes()
+                                .withLabel ("st")
+                                .withStringFromValueFunction ([] (float value, int)
+                                {
+                                    const auto text = String (value, 2);
+                                    return (value > 0.0f ? "+" : "") + text + " st";
+                                })
+                                .withValueFromStringFunction ([] (const String& text) { return text.getFloatValue(); });
+
+    for (int layer = 0; layer < kMaxLayers; ++layer)
+    {
+        const auto suffix = layer == 0 ? String() : " " + String (layer + 1);
+
+        params.push_back (std::make_unique<AudioParameterFloat> (
+            ParameterID { toneLayerParam ("tonePitch", layer), 1 },
+            "Tone Pitch" + suffix,
+            NormalisableRange<float> (-24.0f, 24.0f),
+            0.0f,
+            pitchAttrs));
+        params.push_back (std::make_unique<AudioParameterFloat> (
+            ParameterID { toneLayerParam ("fadeRelease", layer), 1 },
+            "Fade Release" + suffix,
+            logRange (0.1f, 20.0f),
+            2.0f,
+            lengthAttrs));
+    }
+
+    const auto msAttrs = AudioParameterFloatAttributes()
+                             .withLabel ("ms")
+                             .withStringFromValueFunction ([] (float value, int) { return String (value, 2) + " ms"; })
+                             .withValueFromStringFunction ([] (const String& text) { return text.getFloatValue(); });
+    const auto hzAttrs = AudioParameterFloatAttributes()
+                             .withLabel ("Hz")
+                             .withStringFromValueFunction ([] (float value, int) { return String (value, 2) + " Hz"; })
+                             .withValueFromStringFunction ([] (const String& text) { return text.getFloatValue(); });
+
+    for (int layer = 0; layer < kMaxLayers; ++layer)
+    {
+        const auto suffix = " " + String (layer + 1);
+
+        for (int delay = 0; delay < kDelayCount; ++delay)
+        {
+            const auto label = "Delay " + String (delay + 1);
+            params.push_back (std::make_unique<AudioParameterBool> (
+                ParameterID { layerParam (delayFieldName ("flutterOn", delay).toRawUTF8(), layer), 1 },
+                label + " Flutter" + suffix,
+                false));
+            params.push_back (std::make_unique<AudioParameterFloat> (
+                ParameterID { layerParam (delayFieldName ("flutterMs", delay).toRawUTF8(), layer), 1 },
+                label + " Flutter Interval" + suffix,
+                NormalisableRange<float> (0.0f, 40.0f),
+                8.0f,
+                msAttrs));
+        }
+
+        params.push_back (std::make_unique<AudioParameterFloat> (
+            ParameterID { toneLayerParam ("kickPitch", layer), 1 },
+            "Kick Pitch" + suffix,
+            logRange (40.0f, 880.0f),
+            185.0f,
+            hzAttrs));
     }
 
     return { params.begin(), params.end() };

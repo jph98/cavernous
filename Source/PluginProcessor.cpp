@@ -20,6 +20,8 @@ PluginProcessor::PluginProcessor()
             delayDry[delay][i] = apvts.getRawParameterValue (layerParam (delayFieldName ("delayDry", delay).toRawUTF8(), i));
             delayWet[delay][i] = apvts.getRawParameterValue (layerParam (delayFieldName ("delayWet", delay).toRawUTF8(), i));
             delayOn[delay][i] = apvts.getRawParameterValue (layerParam (delayFieldName ("delayOn", delay).toRawUTF8(), i));
+            flutterOn[delay][i] = apvts.getRawParameterValue (layerParam (delayFieldName ("flutterOn", delay).toRawUTF8(), i));
+            flutterMs[delay][i] = apvts.getRawParameterValue (layerParam (delayFieldName ("flutterMs", delay).toRawUTF8(), i));
             octave[delay][i] = apvts.getRawParameterValue (layerParam (delayFieldName ("octave", delay).toRawUTF8(), i));
             reverbDry[delay][i] = apvts.getRawParameterValue (layerParam (delayFieldName ("reverbDry", delay).toRawUTF8(), i));
             reverbWet[delay][i] = apvts.getRawParameterValue (layerParam (delayFieldName ("reverbWet", delay).toRawUTF8(), i));
@@ -30,10 +32,29 @@ PluginProcessor::PluginProcessor()
             reverbDiffusion[delay][i] = apvts.getRawParameterValue (layerParam (delayFieldName ("reverbDiffusion", delay).toRawUTF8(), i));
             reverbLow[delay][i] = apvts.getRawParameterValue (layerParam (delayFieldName ("reverbLow", delay).toRawUTF8(), i));
             reverbHigh[delay][i] = apvts.getRawParameterValue (layerParam (delayFieldName ("reverbHigh", delay).toRawUTF8(), i));
+            reverbSize[delay][i] = apvts.getRawParameterValue (layerParam (delayFieldName ("reverbSize", delay).toRawUTF8(), i));
         }
     }
 
     kill = apvts.getRawParameterValue ("kill");
+
+    for (int layer = 0; layer < kMaxLayers; ++layer)
+    {
+        toneKey[layer] = apvts.getRawParameterValue (toneLayerParam ("toneKey", layer));
+        toneOctave[layer] = apvts.getRawParameterValue (toneLayerParam ("toneOctave", layer));
+        toneOvertones[layer] = apvts.getRawParameterValue (toneLayerParam ("toneOvertones", layer));
+        toneNoise[layer] = apvts.getRawParameterValue (toneLayerParam ("toneNoise", layer));
+        toneLength[layer] = apvts.getRawParameterValue (toneLayerParam ("toneLength", layer));
+        tonePitch[layer] = apvts.getRawParameterValue (toneLayerParam ("tonePitch", layer));
+        fadeRelease[layer] = apvts.getRawParameterValue (toneLayerParam ("fadeRelease", layer));
+        kickPitch[layer] = apvts.getRawParameterValue (toneLayerParam ("kickPitch", layer));
+        droneOn[layer] = apvts.getRawParameterValue (toneLayerParam ("droneOn", layer));
+        droneMode[layer] = apvts.getRawParameterValue (toneLayerParam ("droneMode", layer));
+
+        for (int degree = 0; degree < kDroneDegreeCount; ++degree)
+            droneDegree[layer][degree] = apvts.getRawParameterValue (
+                toneLayerParam (droneDegreeParam (degree).toRawUTF8(), layer));
+    }
 }
 
 PluginProcessor::~PluginProcessor() = default;
@@ -42,13 +63,18 @@ void PluginProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     currentSampleRate = sampleRate;
     scratch.setSize (2, samplesPerBlock, false, true, true);
+    droneBus.setSize (2, samplesPerBlock, false, true, true);
     sum.setSize (2, samplesPerBlock, false, true, true);
 
     for (int i = 0; i < kMaxLayers; ++i)
     {
         voices[(size_t) i].prepare (sampleRate);
+        droneTones[(size_t) i].prepare (sampleRate);
         level[(size_t) i].reset (sampleRate, 0.03);
         level[(size_t) i].setCurrentAndTargetValue (juce::Decibels::decibelsToGain (layerLevel[i]->load(), -100.0f));
+        fadeGain[(size_t) i].reset (sampleRate, 0.05);
+        fadeGain[(size_t) i].setCurrentAndTargetValue (1.0f);
+        layerFade[(size_t) i] = LayerFade::idle;
     }
 
     prepared = true;
@@ -85,6 +111,8 @@ LayerSettings PluginProcessor::settingsForLayer (int layer) const
         settings.delay[(size_t) delay].dryDb = delayDry[delay][layer]->load();
         settings.delay[(size_t) delay].wetDb = delayWet[delay][layer]->load();
         settings.delay[(size_t) delay].on = delayOn[delay][layer]->load() >= 0.5f;
+        settings.delay[(size_t) delay].flutter = flutterOn[delay][layer]->load() >= 0.5f;
+        settings.delay[(size_t) delay].flutterMs = flutterMs[delay][layer]->load();
         settings.reverb[(size_t) delay].dryDb = reverbDry[delay][layer]->load();
         settings.reverb[(size_t) delay].wetDb = reverbWet[delay][layer]->load();
         settings.reverb[(size_t) delay].decaySeconds = reverbDecay[delay][layer]->load();
@@ -95,6 +123,7 @@ LayerSettings PluginProcessor::settingsForLayer (int layer) const
         settings.reverb[(size_t) delay].diffusion = reverbDiffusion[delay][layer]->load();
         settings.reverb[(size_t) delay].lowCutHz = reverbLow[delay][layer]->load();
         settings.reverb[(size_t) delay].highCutHz = reverbHigh[delay][layer]->load();
+        settings.reverb[(size_t) delay].sizePercent = reverbSize[delay][layer]->load();
     }
 
     return settings;
@@ -111,11 +140,27 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
 
     if (kill != nullptr && kill->load() >= 0.5f)
     {
-        for (auto& voice : voices)
-            voice.killWet();
+        const int layer = (int) selectedLayer.load();
+        silenceLayer (layer);
+        cancelLayerFade (layer);
 
         if (auto* parameter = dynamic_cast<juce::AudioParameterBool*> (apvts.getParameter ("kill")))
             parameter->setValueNotifyingHost (0.0f);
+    }
+
+    if (killAllArmed.exchange (false))
+    {
+        for (int layer = 0; layer < kMaxLayers; ++layer)
+        {
+            silenceLayer (layer);
+            cancelLayerFade (layer);
+        }
+    }
+
+    if (trailsArmed.exchange (false))
+    {
+        for (auto& voice : voices)
+            voice.killWet();
     }
 
     const int numSamples = buffer.getNumSamples();
@@ -124,11 +169,10 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
     for (int channel = getTotalNumInputChannels(); channel < getTotalNumOutputChannels(); ++channel)
         buffer.clear (channel, 0, numSamples);
 
-    renderTestTone (buffer);
-
     if (numSamples > scratch.getNumSamples())
     {
         scratch.setSize (2, numSamples, false, false, true);
+        droneBus.setSize (2, numSamples, false, false, true);
         sum.setSize (2, numSamples, false, false, true);
     }
 
@@ -144,7 +188,31 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
             scratch.copyFrom (channel, 0, buffer, source, 0, numSamples);
         }
 
-        voices[(size_t) layer].process (scratch, settingsForLayer (layer));
+        if (fadeArmed[(size_t) layer].exchange (false))
+            beginLayerFade (layer);
+
+        renderLayerSource (layer, scratch, droneBus);
+        voices[(size_t) layer].process (scratch, settingsForLayer (layer), &droneBus);
+
+        const float fadeStart = fadeGain[(size_t) layer].getCurrentValue();
+        fadeGain[(size_t) layer].skip (numSamples);
+        const float fadeEnd = fadeGain[(size_t) layer].getCurrentValue();
+
+        if (fadeStart < 0.9995f || fadeEnd < 0.9995f)
+        {
+            scratch.applyGainRamp (0, 0, numSamples, fadeStart, fadeEnd);
+            scratch.applyGainRamp (1, 0, numSamples, fadeStart, fadeEnd);
+        }
+
+        if (layerFade[(size_t) layer] == LayerFade::falling && ! fadeGain[(size_t) layer].isSmoothing())
+        {
+            silenceLayer (layer);
+            beginLayerReturn (layer);
+        }
+        else if (layerFade[(size_t) layer] == LayerFade::returning && ! fadeGain[(size_t) layer].isSmoothing())
+        {
+            layerFade[(size_t) layer] = LayerFade::idle;
+        }
 
         level[(size_t) layer].setTargetValue (juce::Decibels::decibelsToGain (layerLevel[layer]->load(), -100.0f));
         const float start = level[(size_t) layer].getCurrentValue();
@@ -167,39 +235,141 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
 
 void PluginProcessor::triggerTestTone()
 {
-    testArmed.store (true);
+    const int layer = juce::jlimit (0, kMaxLayers - 1, (int) selectedLayer.load());
+    toneArmed[(size_t) layer].store (true);
 }
 
-void PluginProcessor::renderTestTone (juce::AudioBuffer<float>& buffer)
+void PluginProcessor::killAll()
 {
-    if (testArmed.exchange (false))
+    killAllArmed.store (true);
+}
+
+void PluginProcessor::fadeOut()
+{
+    const int layer = juce::jlimit (0, kMaxLayers - 1, (int) selectedLayer.load());
+    fadeArmed[(size_t) layer].store (true);
+}
+
+void PluginProcessor::fadeAll()
+{
+    const int count = getNumLayers();
+
+    for (int layer = 0; layer < count; ++layer)
+        fadeArmed[(size_t) layer].store (true);
+}
+
+void PluginProcessor::cancelLayerFade (int layer)
+{
+    layer = juce::jlimit (0, kMaxLayers - 1, layer);
+    fadeArmed[(size_t) layer].store (false);
+    fadeGain[(size_t) layer].setCurrentAndTargetValue (1.0f);
+    layerFade[(size_t) layer] = LayerFade::idle;
+}
+
+void PluginProcessor::beginLayerFade (int layer)
+{
+    const float release = fadeRelease[layer] != nullptr ? fadeRelease[layer]->load() : 2.0f;
+    const float seconds = juce::jlimit (0.05f, 30.0f, release);
+    const float current = fadeGain[(size_t) layer].getCurrentValue();
+    fadeGain[(size_t) layer].reset (currentSampleRate, (double) seconds);
+    fadeGain[(size_t) layer].setCurrentAndTargetValue (current);
+    fadeGain[(size_t) layer].setTargetValue (0.0f);
+    layerFade[(size_t) layer] = LayerFade::falling;
+}
+
+void PluginProcessor::beginLayerReturn (int layer)
+{
+    fadeGain[(size_t) layer].reset (currentSampleRate, 0.05);
+    fadeGain[(size_t) layer].setCurrentAndTargetValue (0.0f);
+    fadeGain[(size_t) layer].setTargetValue (1.0f);
+    layerFade[(size_t) layer] = LayerFade::returning;
+}
+
+void PluginProcessor::silenceLayer (int layer)
+{
+    layer = juce::jlimit (0, kMaxLayers - 1, layer);
+    toneArmed[(size_t) layer].store (false);
+    toneBurst[(size_t) layer].stop();
+    droneTones[(size_t) layer].silence();
+    voices[(size_t) layer].killWet();
+
+    if (auto* parameter = dynamic_cast<juce::AudioParameterBool*> (
+            apvts.getParameter (toneLayerParam ("droneOn", layer))))
+        parameter->setValueNotifyingHost (0.0f);
+}
+
+void PluginProcessor::knockTanks()
+{
+    const int layer = juce::jlimit (0, kMaxLayers - 1, (int) selectedLayer.load());
+    const float pitch = kickPitch[layer] != nullptr ? kickPitch[layer]->load() : 185.0f;
+
+    for (int delay = 0; delay < kDelayCount; ++delay)
+        if (reverbOn[delay][layer] != nullptr && reverbOn[delay][layer]->load() >= 0.5f)
+            voices[(size_t) layer].knock (delay, pitch);
+}
+
+void PluginProcessor::killTrails()
+{
+    trailsArmed.store (true);
+
+    if (juce::MessageManager::getInstance()->isThisTheMessageThread())
+        restoreTrailParameters();
+    else
+        juce::MessageManager::callAsync ([this] { restoreTrailParameters(); });
+}
+
+void PluginProcessor::restoreTrailParameters()
+{
+    auto centre = [] (juce::RangedAudioParameter* parameter)
     {
-        testSamplesLeft = (int) std::round (0.42 * currentSampleRate);
-        testPhaseA = 0.0;
-        testPhaseB = 0.0;
+        if (parameter == nullptr)
+            return;
+
+        parameter->beginChangeGesture();
+        parameter->setValueNotifyingHost (0.5f);
+        parameter->endChangeGesture();
+    };
+
+    for (int layer = 0; layer < kMaxLayers; ++layer)
+    {
+        for (int delay = 0; delay < kDelayCount; ++delay)
+        {
+            centre (apvts.getParameter (layerParam (delayFieldName ("delayFeedback", delay).toRawUTF8(), layer)));
+            centre (apvts.getParameter (layerParam (delayFieldName ("reverbDecay", delay).toRawUTF8(), layer)));
+        }
+    }
+}
+
+void PluginProcessor::renderLayerSource (int layer, juce::AudioBuffer<float>& buffer, juce::AudioBuffer<float>& droneOut)
+{
+    if (toneArmed[(size_t) layer].exchange (false))
+    {
+        const int key = toneKey[layer] != nullptr ? (int) std::round (toneKey[layer]->load()) : 0;
+        const int octaveNumber = toneOctave[layer] != nullptr ? (int) std::round (toneOctave[layer]->load()) : 3;
+        const int overtones = toneOvertones[layer] != nullptr ? (int) std::round (toneOvertones[layer]->load()) : 0;
+        const int noise = toneNoise[layer] != nullptr ? (int) std::round (toneNoise[layer]->load()) : 0;
+        const float length = toneLength[layer] != nullptr ? toneLength[layer]->load() : 1.0f;
+        const float semitones = tonePitch[layer] != nullptr ? tonePitch[layer]->load() : 0.0f;
+        toneBurst[(size_t) layer].trigger (currentSampleRate, key, octaveNumber, overtones, noise, length, semitones);
     }
 
-    if (testSamplesLeft <= 0 || currentSampleRate <= 0.0)
-        return;
+    const float semitones = tonePitch[layer] != nullptr ? tonePitch[layer]->load() : 0.0f;
+    toneBurst[(size_t) layer].setTranspose (semitones);
+    toneBurst[(size_t) layer].addTo (buffer);
 
-    const int numSamples = buffer.getNumSamples();
-    const int numChannels = buffer.getNumChannels();
-    const double incA = juce::MathConstants<double>::twoPi * 196.0 / currentSampleRate;
-    const double incB = juce::MathConstants<double>::twoPi * 294.0 / currentSampleRate;
-    const float total = (float) juce::jmax (1, (int) std::round (0.42 * currentSampleRate));
+    bool degrees[kDroneDegreeCount] {};
+    for (int degree = 0; degree < kDroneDegreeCount; ++degree)
+        degrees[degree] = droneDegree[layer][degree] != nullptr && droneDegree[layer][degree]->load() >= 0.5f;
 
-    for (int i = 0; i < numSamples && testSamplesLeft > 0; ++i)
-    {
-        const float env = std::exp (-6.2f * (1.0f - (float) testSamplesLeft / total));
-        const float sample = 0.28f * env * (float) (std::sin (testPhaseA) + 0.4 * std::sin (testPhaseB));
+    const int key = toneKey[layer] != nullptr ? (int) std::round (toneKey[layer]->load()) : 0;
+    const int octaveNumber = toneOctave[layer] != nullptr ? (int) std::round (toneOctave[layer]->load()) : 3;
+    const int overtones = toneOvertones[layer] != nullptr ? (int) std::round (toneOvertones[layer]->load()) : 0;
+    const int mode = droneMode[layer] != nullptr ? (int) std::round (droneMode[layer]->load()) : 0;
+    const bool enabled = droneOn[layer] != nullptr && droneOn[layer]->load() >= 0.5f;
 
-        for (int channel = 0; channel < numChannels; ++channel)
-            buffer.addSample (channel, i, sample);
-
-        testPhaseA += incA;
-        testPhaseB += incB;
-        --testSamplesLeft;
-    }
+    droneTones[(size_t) layer].setNotes (key, octaveNumber, mode, overtones, degrees, enabled, semitones);
+    droneOut.clear();
+    droneTones[(size_t) layer].addTo (droneOut);
 }
 
 float PluginProcessor::softClip (float sample)
@@ -277,7 +447,69 @@ void PluginProcessor::applyAction (int action)
 {
     if (action == testToneAction)
     {
-        testArmed.store (true);
+        triggerTestTone();
+        return;
+    }
+
+    if (action == knockAction)
+    {
+        knockTanks();
+        return;
+    }
+
+    if (action == killAllAction)
+    {
+        killAll();
+        return;
+    }
+
+    if (action == fadeAction)
+    {
+        fadeOut();
+        return;
+    }
+
+    if (action == fadeAllAction)
+    {
+        fadeAll();
+        return;
+    }
+
+    if (action == killTrailsAction)
+    {
+        killTrails();
+        return;
+    }
+
+    const int toneLayer = juce::jlimit (0, kMaxLayers - 1, (int) selectedLayer.load());
+
+    if (action >= 800 && action < 800 + kToneKeyCount)
+    {
+        setChoice (toneLayerParam ("toneKey", toneLayer), action - 800);
+        return;
+    }
+
+    if (action >= 820 && action < 820 + (kToneOctaveMax - kToneOctaveMin + 1))
+    {
+        setInt (toneLayerParam ("toneOctave", toneLayer), kToneOctaveMin + (action - 820));
+        return;
+    }
+
+    if (action >= 830 && action < 830 + kToneOvertoneMax + 1)
+    {
+        setInt (toneLayerParam ("toneOvertones", toneLayer), action - 830);
+        return;
+    }
+
+    if (action >= 840 && action < 840 + kNoiseColourCount)
+    {
+        setChoice (toneLayerParam ("toneNoise", toneLayer), action - 840);
+        return;
+    }
+
+    if (action >= 850 && action < 850 + kDroneModeCount)
+    {
+        setChoice (toneLayerParam ("droneMode", toneLayer), action - 850);
         return;
     }
 
@@ -352,6 +584,12 @@ void PluginProcessor::setChoice (const juce::String& parameterId, int index)
         parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) index));
 }
 
+void PluginProcessor::setInt (const juce::String& parameterId, int value)
+{
+    if (auto* parameter = dynamic_cast<juce::AudioParameterInt*> (apvts.getParameter (parameterId)))
+        parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) value));
+}
+
 int PluginProcessor::getNumLayers() const
 {
     return juce::jlimit (1, kMaxLayers, (int) std::round (numLayers->load()));
@@ -376,17 +614,22 @@ void PluginProcessor::removeLayer (int index)
 
     index = juce::jlimit (0, count - 1, index);
 
-    auto parameterIndex = [this] (const char* name, int layer)
+    auto parameterId = [] (const char* name, int layer)
     {
-        return apvts.getParameter (layerParam (name, layer))->getParameterIndex();
+        return isToneLayerParameter (name) ? toneLayerParam (name, layer) : layerParam (name, layer);
+    };
+
+    auto parameterIndex = [this, &parameterId] (const char* name, int layer)
+    {
+        return apvts.getParameter (parameterId (name, layer))->getParameterIndex();
     };
 
     for (int destination = index; destination < count - 1; ++destination)
     {
         for (const char* name : layerParameterNames)
         {
-            auto* source = apvts.getParameter (layerParam (name, destination + 1));
-            auto* dest = apvts.getParameter (layerParam (name, destination));
+            auto* source = apvts.getParameter (parameterId (name, destination + 1));
+            auto* dest = apvts.getParameter (parameterId (name, destination));
             dest->setValueNotifyingHost (source->getValue());
             retargetMapping (parameterIndex (name, destination + 1), parameterIndex (name, destination));
         }

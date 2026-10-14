@@ -1492,5 +1492,6 @@ CMakeFiles/Cavernous.dir/Source/PluginEditor.cpp.o: \
   /Users/jon/workspace-ai/Cavernous/Source/Dsp/PitchShifter.h \
   /Users/jon/workspace-ai/Cavernous/Source/Dsp/StereoDelay.h \
   /Users/jon/workspace-ai/Cavernous/Source/Dsp/CavernReverb.h \
+  /Users/jon/workspace-ai/Cavernous/Source/Dsp/ToneSource.h \
   /Users/jon/workspace-ai/Cavernous/Source/Parameters.h \
   /Users/jon/workspace-ai/Cavernous/Source/Ui/LearnControls.h

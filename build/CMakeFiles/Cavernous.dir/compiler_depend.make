@@ -876,6 +876,7 @@ CMakeFiles/Cavernous.dir/Source/PluginEditor.cpp.o: /Users/jon/workspace-ai/Cave
   /Users/jon/workspace-ai/Cavernous/Source/Dsp/LayerVoice.h \
   /Users/jon/workspace-ai/Cavernous/Source/Dsp/PitchShifter.h \
   /Users/jon/workspace-ai/Cavernous/Source/Dsp/StereoDelay.h \
+  /Users/jon/workspace-ai/Cavernous/Source/Dsp/ToneSource.h \
   /Users/jon/workspace-ai/Cavernous/Source/Parameters.h \
   /Users/jon/workspace-ai/Cavernous/Source/PluginEditor.h \
   /Users/jon/workspace-ai/Cavernous/Source/PluginProcessor.h \
@@ -2372,6 +2373,7 @@ CMakeFiles/Cavernous.dir/Source/PluginProcessor.cpp.o: /Users/jon/workspace-ai/C
   /Users/jon/workspace-ai/Cavernous/Source/Dsp/LayerVoice.h \
   /Users/jon/workspace-ai/Cavernous/Source/Dsp/PitchShifter.h \
   /Users/jon/workspace-ai/Cavernous/Source/Dsp/StereoDelay.h \
+  /Users/jon/workspace-ai/Cavernous/Source/Dsp/ToneSource.h \
   /Users/jon/workspace-ai/Cavernous/Source/Parameters.h \
   /Users/jon/workspace-ai/Cavernous/Source/PluginEditor.h \
   /Users/jon/workspace-ai/Cavernous/Source/PluginProcessor.h \
@@ -42062,10 +42064,6 @@ _deps/juce-src/modules/juce_gui_basics/accessibility/enums/juce_AccessibilityAct
 
 _deps/juce-src/modules/juce_audio_basics/sources/juce_MemoryAudioSource.cpp:
 
-/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/CoreServices.framework/Frameworks/CarbonCore.framework/Headers/Gestalt.h:
-
-_deps/juce-src/modules/juce_core/juce_core_CompilationTime.cpp:
-
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__iterator/concepts.h:
 
 _deps/juce-src/modules/juce_audio_basics/sources/juce_IIRFilterAudioSource.cpp:
@@ -45344,6 +45342,8 @@ _deps/juce-src/modules/juce_audio_basics/buffers/juce_AudioSampleBuffer.h:
 
 _deps/juce-src/modules/juce_audio_basics/buffers/juce_AudioChannelSet.h:
 
+/Users/jon/workspace-ai/Cavernous/Source/Dsp/ToneSource.h:
+
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/ApplicationServices.framework/Frameworks/HIServices.framework/Headers/AXValue.h:
 
 _deps/juce-src/modules/juce_core/containers/juce_ArrayBase.h:
@@ -47839,6 +47839,10 @@ _deps/juce-src/modules/juce_core/time/juce_PerformanceCounter.cpp:
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/mach/machine/rpc.h:
 
 _deps/juce-src/modules/juce_graphics/fonts/juce_FontOptions.h:
+
+_deps/juce-src/modules/juce_core/juce_core_CompilationTime.cpp:
+
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/CoreServices.framework/Frameworks/CarbonCore.framework/Headers/Gestalt.h:
 
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/CoreServices.framework/Frameworks/AE.framework/Headers/AEObjects.h:
 

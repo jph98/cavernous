@@ -1070,4 +1070,5 @@ CMakeFiles/CavernousDspTest.dir/tests/DspTest.cpp.o: \
   /Users/jon/workspace-ai/Cavernous/build/_deps/juce-src/modules/juce_audio_basics/midi/ump/juce_UMPDispatcher.h \
   /Users/jon/workspace-ai/Cavernous/build/_deps/juce-src/modules/juce_audio_basics/midi/ump/juce_UMPStringUtils.h \
   /Users/jon/workspace-ai/Cavernous/Source/Dsp/StereoDelay.h \
-  /Users/jon/workspace-ai/Cavernous/Source/Dsp/CavernReverb.h
+  /Users/jon/workspace-ai/Cavernous/Source/Dsp/CavernReverb.h \
+  /Users/jon/workspace-ai/Cavernous/Source/Dsp/ToneSource.h

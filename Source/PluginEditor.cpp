@@ -6,7 +6,9 @@ namespace
 constexpr int imageBand = 108;
 constexpr int stageTop = 116;
 constexpr int stageH = 584;
-constexpr int barTop = 708;
+constexpr int toneTop = 704;
+constexpr int droneTop = 744;
+constexpr int barTop = 788;
 constexpr int margin = 16;
 constexpr int colGap = 12;
 constexpr int colW = 340;
@@ -17,8 +19,8 @@ constexpr int delayFaderPitch = 74;
 constexpr int delayFaderY = 170;
 constexpr int delayFaderH = 92;
 
-constexpr int reverbFaderX = 55;
-constexpr int reverbFaderPitch = 86;
+constexpr int reverbFaderX = 30;
+constexpr int reverbFaderPitch = 74;
 constexpr int reverbFaderY = 486;
 constexpr int reverbFaderH = 84;
 
@@ -33,6 +35,33 @@ int columnX (int index)
     return margin + index * (colW + colGap);
 }
 
+const char* toneKeyShortcut (int key)
+{
+    static constexpr const char* shortcuts[] = {
+        "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "+"
+    };
+    return shortcuts[(size_t) juce::jlimit (0, kToneKeyCount - 1, key)];
+}
+
+juce::juce_wchar shortcutCharacter (const juce::KeyPress& key)
+{
+    const auto typed = key.getTextCharacter();
+    return typed != 0 ? typed : (juce::juce_wchar) key.getKeyCode();
+}
+
+int toneKeyForShortcut (juce::juce_wchar character)
+{
+    static constexpr juce::juce_wchar keys[] = {
+        '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '+'
+    };
+
+    for (int i = 0; i < kToneKeyCount; ++i)
+        if (character == keys[i])
+            return i;
+
+    return -1;
+}
+
 class BarLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
@@ -43,7 +72,7 @@ public:
         const auto id = button.getComponentID();
         const bool selected = button.getToggleState();
 
-        if (id == "step")
+        if (id == "step" || id == "tone")
         {
             auto fill = selected ? juce::Colour (0xff1d6a38) : juce::Colour (0xff171b16);
             if (highlighted)
@@ -55,6 +84,21 @@ public:
             g.fillRoundedRectangle (bounds, 3.0f);
             g.setColour (juce::Colour (0xff8dff9a).withAlpha (selected ? 0.95f : 0.4f));
             g.drawRoundedRectangle (bounds, 3.0f, selected ? 1.6f : 1.0f);
+            return;
+        }
+
+        if (id == "fade")
+        {
+            auto fill = juce::Colour (0xff3d3420);
+            if (highlighted)
+                fill = fill.brighter (0.14f);
+            if (down || selected)
+                fill = fill.brighter (0.2f);
+
+            g.setColour (fill);
+            g.fillRoundedRectangle (bounds, 5.0f);
+            g.setColour (juce::Colour (0xffe6d7b8));
+            g.drawRoundedRectangle (bounds, 5.0f, 1.2f);
             return;
         }
 
@@ -92,10 +136,72 @@ public:
 
     juce::Font getTextButtonFont (juce::TextButton& button, int) override
     {
-        const float size = button.getComponentID() == "step" ? 12.0f : 13.0f;
+        const auto id = button.getComponentID();
+        const float size = (id == "step" || id == "tone") ? 12.0f : 13.0f;
         return juce::Font (juce::FontOptions (size));
     }
+
+    void drawButtonText (juce::Graphics& g, juce::TextButton& button, bool highlighted, bool down) override
+    {
+        const auto shortcut = button.getProperties()["shortcut"].toString();
+
+        if (shortcut.isEmpty())
+        {
+            juce::LookAndFeel_V4::drawButtonText (g, button, highlighted, down);
+            return;
+        }
+
+        auto colour = button.findColour (button.getToggleState() ? juce::TextButton::textColourOnId
+                                                                  : juce::TextButton::textColourOffId);
+        if (! button.isEnabled())
+            colour = colour.withMultipliedAlpha (0.5f);
+
+        g.setColour (colour);
+
+        if (button.getWidth() < 48)
+        {
+            auto area = button.getLocalBounds().reduced (1, 1);
+            g.setFont (juce::Font (juce::FontOptions (12.0f)));
+            g.drawFittedText (button.getButtonText(), area.removeFromTop (15), juce::Justification::centred, 1);
+            g.setFont (juce::Font (juce::FontOptions (9.0f)));
+            g.setColour (juce::Colour (0xff8dff9a).withAlpha (button.getToggleState() ? 1.0f : 0.72f));
+            g.drawFittedText (shortcut, area, juce::Justification::centred, 1);
+            return;
+        }
+
+        auto area = button.getLocalBounds().reduced (4, 0);
+        auto hint = area.removeFromRight (18);
+        g.setFont (getTextButtonFont (button, button.getHeight()));
+        g.drawFittedText (button.getButtonText(), area, juce::Justification::centred, 1);
+        g.setFont (juce::Font (juce::FontOptions (12.0f)));
+        g.setColour (juce::Colour (0xff8dff9a).withAlpha (0.9f));
+        g.drawFittedText (shortcut, hint, juce::Justification::centred, 1);
+    }
 };
+
+void styleCaption (juce::Label& label, const juce::String& text)
+{
+    label.setText (text, juce::dontSendNotification);
+    label.setJustificationType (juce::Justification::centredRight);
+    label.setColour (juce::Label::textColourId, juce::Colour (0xffe6d7b8));
+    label.setFont (juce::Font (juce::FontOptions (11.0f)));
+    label.setInterceptsMouseClicks (false, false);
+}
+
+void styleValueSlider (LearnSlider& slider, const juce::String& name, const juce::String& tip)
+{
+    slider.setSliderStyle (juce::Slider::LinearHorizontal);
+    slider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 72, 18);
+    slider.setNumDecimalPlacesToDisplay (2);
+    slider.setColour (juce::Slider::textBoxTextColourId, juce::Colour (0xff8dff9a));
+    slider.setColour (juce::Slider::textBoxOutlineColourId, juce::Colour (0xff16361f));
+    slider.setColour (juce::Slider::textBoxBackgroundColourId, juce::Colour (0xff041208));
+    slider.setColour (juce::Slider::thumbColourId, juce::Colour (0xffe6d7b8));
+    slider.setColour (juce::Slider::trackColourId, juce::Colour (0xff1d6a38));
+    slider.setColour (juce::Slider::backgroundColourId, juce::Colour (0xff14181e));
+    slider.setName (name);
+    slider.setTooltip (tip);
+}
 
 void styleChip (juce::TextButton& button)
 {
@@ -126,9 +232,9 @@ struct PluginEditor::Content : public juce::Component,
         const char* delayNames[] = { "delayTime", "delayFeedback", "delayDry", "delayWet" };
         const char* delaySuffixes[] = { " ms", " %", " dB", " dB" };
         const char* delayTips[] = { "Time", "Feedback", "Dry", "Wet" };
-        const char* reverbNames[] = { "reverbDry", "reverbWet", "reverbDecay" };
-        const char* reverbSuffixes[] = { " dB", " dB", " s" };
-        const char* reverbTips[] = { "Dry", "Wet", "Decay" };
+        const char* reverbNames[] = { "reverbSize", "reverbDry", "reverbWet", "reverbDecay" };
+        const char* reverbSuffixes[] = { " %", " dB", " dB", " s" };
+        const char* reverbTips[] = { "Size", "Dry", "Wet", "Decay" };
 
         for (int delay = 0; delay < kDelayCount; ++delay)
         {
@@ -171,7 +277,29 @@ struct PluginEditor::Content : public juce::Component,
             addAndMakeVisible (delayOnLed[delay]);
             delayOnLed[delay].setBounds (x + colW - 124, y + 24, 56, 18);
 
-            for (int control = 0; control < 3; ++control)
+            auto& flutter = flutterButton[delay];
+            addAndMakeVisible (flutter);
+            flutter.setBounds (x + 196, y + 76, 128, 24);
+            flutter.setComponentID ("tone");
+            flutter.setButtonText ("Flutter");
+            flutter.setClickingTogglesState (false);
+            styleChip (flutter);
+            flutter.onClick = [this, delay]
+            {
+                toggleBool (layerParam (delayFieldName ("flutterOn", delay).toRawUTF8(), selected));
+            };
+            flutter.setTooltip ("Move this delay's time up and down by the interval");
+            wireParamButton (flutter);
+
+            auto& interval = flutterSlider[delay];
+            addAndMakeVisible (interval);
+            interval.setBounds (x + 196, y + 104, 128, 26);
+            styleValueSlider (interval, "Delay " + juce::String (delay + 1) + " flutter interval",
+                              "How far the delay time moves up and down");
+            interval.setTextBoxStyle (juce::Slider::TextBoxRight, false, 62, 16);
+            wireSlider (interval);
+
+            for (int control = 0; control < 4; ++control)
             {
                 auto& slider = reverbFader[delay][control];
                 addAndMakeVisible (slider);
@@ -204,6 +332,8 @@ struct PluginEditor::Content : public juce::Component,
 
                 addAndMakeVisible (toneLed[delay][control]);
                 toneLed[delay][control].setBounds (knobX + (toneKnobSize - 72) / 2, y + toneLedY, 72, 16);
+                tone.setVisible (false);
+                toneLed[delay][control].setVisible (false);
             }
 
             for (int type = 0; type < kReverbTypeCount; ++type)
@@ -237,13 +367,143 @@ struct PluginEditor::Content : public juce::Component,
             reverbOnLed[delay].setBounds (x + colW - 124, y + 294, 56, 18);
         }
 
+        auto addToneChip = [this] (LearnButton& button, const juce::String& text)
+        {
+            addAndMakeVisible (button);
+            button.setButtonText (text);
+            button.setComponentID ("tone");
+            button.setClickingTogglesState (false);
+            styleChip (button);
+            wireAction (button);
+        };
+
+        addAndMakeVisible (keyLabel);
+        styleCaption (keyLabel, "KEY");
+        for (int key = 0; key < kToneKeyCount; ++key)
+        {
+            addToneChip (keyButton[key], toneKeyName (key));
+            keyButton[key].action = toneKeyAction (key);
+            keyButton[key].getProperties().set ("shortcut", toneKeyShortcut (key));
+            keyButton[key].onClick = [this, key] { setLayerChoice ("toneKey", key); };
+            keyButton[key].setTooltip (juce::String (toneKeyName (key)) + "  (" + toneKeyShortcut (key) + ")");
+        }
+
+        addAndMakeVisible (octaveLabel);
+        styleCaption (octaveLabel, "OCT");
+        for (int octave = kToneOctaveMin; octave <= kToneOctaveMax; ++octave)
+        {
+            const int index = octave - kToneOctaveMin;
+            addToneChip (octaveButton[index], juce::String (octave));
+            octaveButton[index].action = toneOctaveAction (octave);
+            octaveButton[index].onClick = [this, octave] { setLayerInt ("toneOctave", octave); };
+            octaveButton[index].setTooltip ("Octave " + juce::String (octave) + " of the generated tone");
+        }
+
+        addAndMakeVisible (overtoneLabel);
+        styleCaption (overtoneLabel, "OVERTONES");
+        for (int count = 0; count <= kToneOvertoneMax; ++count)
+        {
+            addToneChip (overtoneButton[count], juce::String (count));
+            overtoneButton[count].action = toneOvertonesAction (count);
+            overtoneButton[count].onClick = [this, count] { setLayerInt ("toneOvertones", count); };
+            overtoneButton[count].setTooltip (juce::String (count) + " harmonics above the fundamental");
+        }
+
+        addAndMakeVisible (noiseLabel);
+        styleCaption (noiseLabel, "NOISE");
+        for (int colour = 0; colour < kNoiseColourCount; ++colour)
+        {
+            addToneChip (noiseButton[colour], noiseColourName (colour));
+            noiseButton[colour].action = toneNoiseAction (colour);
+            noiseButton[colour].onClick = [this, colour] { setLayerChoice ("toneNoise", colour); };
+            noiseButton[colour].setTooltip (juce::String (noiseColourName (colour)) + " noise with the generated tone");
+        }
+
         addAndMakeVisible (testButton);
-        testButton.setButtonText ("Test");
+        testButton.setButtonText ("Generate Tone");
         styleChip (testButton);
         testButton.action = testToneAction;
+        testButton.getProperties().set ("shortcut", "G");
         testButton.onClick = [this] { processor.triggerTestTone(); };
-        testButton.setTooltip ("Play a short tone through the pedal");
+        testButton.setTooltip ("Play this layer's key for the note length (G)");
         wireAction (testButton);
+
+        addAndMakeVisible (lengthLabel);
+        styleCaption (lengthLabel, "LENGTH");
+        addAndMakeVisible (lengthSlider);
+        styleValueSlider (lengthSlider, "Note length", "Length of the generated tone");
+        wireSlider (lengthSlider);
+
+        addAndMakeVisible (pitchLabel);
+        styleCaption (pitchLabel, "PITCH");
+        addAndMakeVisible (pitchSlider);
+        styleValueSlider (pitchSlider, "Pitch", "Shift this layer's tone and drone lower or higher");
+        wireSlider (pitchSlider);
+
+        addAndMakeVisible (releaseLabel);
+        styleCaption (releaseLabel, "RELEASE");
+        addAndMakeVisible (releaseSlider);
+        styleValueSlider (releaseSlider, "Release", "How long this layer takes to fade out");
+        wireSlider (releaseSlider);
+
+        addAndMakeVisible (knockPitchLabel);
+        styleCaption (knockPitchLabel, "KICK");
+        addAndMakeVisible (knockPitchSlider);
+        styleValueSlider (knockPitchSlider, "Kick pitch", "Pitch of the spring tank kick");
+        wireSlider (knockPitchSlider);
+
+        addAndMakeVisible (modeLabel);
+        styleCaption (modeLabel, "MODE");
+        for (int mode = 0; mode < kDroneModeCount; ++mode)
+        {
+            addToneChip (modeButton[mode], droneModeName (mode));
+            modeButton[mode].action = droneModeAction (mode);
+            modeButton[mode].onClick = [this, mode] { setLayerChoice ("droneMode", mode); };
+            modeButton[mode].setTooltip (juce::String (droneModeName (mode)) + " scale for the drone");
+        }
+
+        addAndMakeVisible (degreeLabel);
+        styleCaption (degreeLabel, "DEGREES");
+        for (int degree = 0; degree < kDroneDegreeCount; ++degree)
+        {
+            addToneChip (degreeButton[degree], juce::String (degree + 1));
+            degreeButton[degree].paramId = droneDegreeParam (degree);
+            degreeButton[degree].onClick = [this, degree]
+            {
+                toggleBool (toneLayerParam (droneDegreeParam (degree).toRawUTF8(), selected));
+            };
+            degreeButton[degree].setTooltip ("Drone scale degree " + juce::String (degree + 1));
+            wireParamButton (degreeButton[degree]);
+        }
+
+        addAndMakeVisible (droneButton);
+        droneButton.setButtonText ("Drone");
+        droneButton.setComponentID ("tone");
+        droneButton.setClickingTogglesState (false);
+        styleChip (droneButton);
+        droneButton.paramId = "droneOn";
+        droneButton.getProperties().set ("shortcut", "D");
+        droneButton.onClick = [this] { toggleBool (droneButton.paramId); };
+        droneButton.setTooltip ("Hold this layer's scale degrees (D)");
+        wireParamButton (droneButton);
+
+        addAndMakeVisible (knockButton);
+        knockButton.setButtonText ("Kick Tank");
+        styleChip (knockButton);
+        knockButton.action = knockAction;
+        knockButton.getProperties().set ("shortcut", "K");
+        knockButton.onClick = [this] { processor.knockTanks(); };
+        knockButton.setTooltip ("Kick this layer's reverb tanks (K)");
+        wireAction (knockButton);
+
+        addAndMakeVisible (killTrailsButton);
+        killTrailsButton.setComponentID ("kill");
+        killTrailsButton.setButtonText ("Kill Trails");
+        styleChip (killTrailsButton);
+        killTrailsButton.action = killTrailsAction;
+        killTrailsButton.onClick = [this] { processor.killTrails(); };
+        killTrailsButton.setTooltip ("Clear the tails and return feedback and decay to the middle");
+        wireAction (killTrailsButton);
 
         addAndMakeVisible (killButton);
         killButton.setComponentID ("kill");
@@ -260,6 +520,33 @@ struct PluginEditor::Content : public juce::Component,
             }
         };
         wireParamButton (killButton);
+
+        addAndMakeVisible (killAllButton);
+        killAllButton.setComponentID ("kill");
+        killAllButton.setButtonText ("Kill Em All");
+        styleChip (killAllButton);
+        killAllButton.action = killAllAction;
+        killAllButton.onClick = [this] { processor.killAll(); };
+        killAllButton.setTooltip ("Stop every layer's drone, notes, and tails");
+        wireAction (killAllButton);
+
+        addAndMakeVisible (fadeButton);
+        fadeButton.setComponentID ("fade");
+        fadeButton.setButtonText ("Fade Out");
+        styleChip (fadeButton);
+        fadeButton.action = fadeAction;
+        fadeButton.onClick = [this] { processor.fadeOut(); };
+        fadeButton.setTooltip ("Fade this layer to silence over its release");
+        wireAction (fadeButton);
+
+        addAndMakeVisible (fadeAllButton);
+        fadeAllButton.setComponentID ("fade");
+        fadeAllButton.setButtonText ("Fade All");
+        styleChip (fadeAllButton);
+        fadeAllButton.action = fadeAllAction;
+        fadeAllButton.onClick = [this] { processor.fadeAll(); };
+        fadeAllButton.setTooltip ("Fade every layer to silence over its release");
+        wireAction (fadeAllButton);
 
         addAndMakeVisible (status);
         status.setJustificationType (juce::Justification::centredLeft);
@@ -301,6 +588,15 @@ struct PluginEditor::Content : public juce::Component,
         removeButton.action = removeLayerAction;
         removeButton.onClick = [this] { removeSelectedLayer(); };
         wireAction (removeButton);
+
+        addAndMakeVisible (aboutButton);
+        aboutButton.setButtonText ("About");
+        styleChip (aboutButton);
+        aboutButton.onClick = [this]
+        {
+            if (onAbout)
+                onAbout();
+        };
 
         addAndMakeVisible (midiButton);
         midiButton.setButtonText ("MIDI Learn");
@@ -350,10 +646,16 @@ struct PluginEditor::Content : public juce::Component,
                          0, srcY, faceplate.getWidth(), srcVisible);
         }
 
-        juce::ColourGradient veil (juce::Colours::transparentBlack, 0.0f, (float) imageBand - 28.0f,
-                                   juce::Colour (0xff07080b).withAlpha (0.84f), 0.0f, (float) stageTop, false);
+        juce::ColourGradient veil (juce::Colours::transparentBlack, 0.0f, (float) imageBand - 20.0f,
+                                   juce::Colour (0xff07080b).withAlpha (0.28f), 0.0f, (float) stageTop, false);
         g.setGradientFill (veil);
-        g.fillRect (0, imageBand - 28, getWidth(), getHeight() - imageBand + 28);
+        g.fillRect (0, imageBand - 20, getWidth(), getHeight() - imageBand + 20);
+
+        g.setColour (juce::Colour (0xff07080b).withAlpha (0.42f));
+        g.fillRect (0, toneTop - 8, getWidth(), getHeight() - toneTop + 8);
+
+        g.setColour (juce::Colour (0xffe6d7b8).withAlpha (0.28f));
+        g.drawLine (16.0f, (float) toneTop - 2.0f, (float) getWidth() - 16.0f, (float) toneTop - 2.0f, 1.0f);
 
         g.setColour (juce::Colours::black.withAlpha (0.5f));
         g.fillRoundedRectangle (18.0f, 28.0f, 230.0f, 44.0f, 6.0f);
@@ -365,14 +667,14 @@ struct PluginEditor::Content : public juce::Component,
         g.drawLine (16.0f, (float) imageBand, (float) getWidth() - 16.0f, (float) imageBand, 1.0f);
 
         const char* delayCaps[] = { "TIME", "FEED", "DRY", "WET" };
-        const char* reverbCaps[] = { "DRY", "WET", "DECAY" };
+        const char* reverbCaps[] = { "SIZE", "DRY", "WET", "DECAY" };
         const char* toneCaps[] = { "SHIFT", "DIFF", "LOW", "HIGH" };
 
         for (int stage = 0; stage < kDelayCount; ++stage)
         {
             const int x = columnX (stage);
             auto card = juce::Rectangle<float> ((float) x, (float) stageTop, (float) colW, (float) stageH);
-            g.setColour (juce::Colour (0xff07080b).withAlpha (0.78f));
+            g.setColour (juce::Colour (0xff07080b).withAlpha (0.46f));
             g.fillRoundedRectangle (card, 8.0f);
             g.setColour (juce::Colour (0xffe6d7b8).withAlpha (0.32f));
             g.drawRoundedRectangle (card.reduced (0.5f), 8.0f, 1.2f);
@@ -394,21 +696,65 @@ struct PluginEditor::Content : public juce::Component,
                             x + delayFaderX + control * delayFaderPitch, stageTop + delayFaderY - 16, faderW, 14,
                             juce::Justification::centred);
 
-            for (int control = 0; control < 3; ++control)
+            for (int control = 0; control < 4; ++control)
                 g.drawText (reverbCaps[control],
                             x + reverbFaderX + control * reverbFaderPitch, stageTop + reverbFaderY - 16, faderW, 14,
                             juce::Justification::centred);
 
-            for (int control = 0; control < 4; ++control)
-                g.drawText (toneCaps[control],
-                            x + toneKnobX + control * toneKnobPitch, stageTop + toneKnobY - 14, toneKnobSize, 14,
-                            juce::Justification::centred);
+            const auto typeId = layerParam (delayFieldName ("reverbType", stage).toRawUTF8(), selected);
+            const int typeValue = (int) std::round (processor.apvts.getRawParameterValue (typeId)->load());
+
+            if (typeValue == kShimmerType)
+            {
+                for (int control = 0; control < 4; ++control)
+                    g.drawText (toneCaps[control],
+                                x + toneKnobX + control * toneKnobPitch, stageTop + toneKnobY - 14, toneKnobSize, 14,
+                                juce::Justification::centred);
+            }
         }
     }
 
     void resized() override
     {
+        layoutTone();
+        layoutDrone();
         layoutBar();
+    }
+
+    std::function<void()> onAbout;
+
+    bool performShortcut (const juce::KeyPress& key)
+    {
+        const auto character = shortcutCharacter (key);
+        const int toneKey = toneKeyForShortcut (character);
+
+        if (toneKey >= 0)
+        {
+            setLayerChoice ("toneKey", toneKey);
+            return true;
+        }
+
+        const auto letter = juce::CharacterFunctions::toLowerCase (character);
+
+        if (letter == 'g')
+        {
+            processor.triggerTestTone();
+            return true;
+        }
+
+        if (letter == 'd')
+        {
+            toggleBool (toneLayerParam ("droneOn", selected));
+            return true;
+        }
+
+        if (letter == 'k')
+        {
+            processor.knockTanks();
+            return true;
+        }
+
+        return false;
     }
 
 private:
@@ -479,6 +825,58 @@ private:
         }
     }
 
+    void setLayerChoice (const char* name, int index)
+    {
+        if (auto* parameter = dynamic_cast<juce::AudioParameterChoice*> (
+                processor.apvts.getParameter (toneLayerParam (name, selected))))
+        {
+            parameter->beginChangeGesture();
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) index));
+            parameter->endChangeGesture();
+        }
+    }
+
+    void setLayerInt (const char* name, int value)
+    {
+        if (auto* parameter = dynamic_cast<juce::AudioParameterInt*> (
+                processor.apvts.getParameter (toneLayerParam (name, selected))))
+        {
+            parameter->beginChangeGesture();
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) value));
+            parameter->endChangeGesture();
+        }
+    }
+
+    void setGlobalChoice (const char* name, int index)
+    {
+        if (auto* parameter = dynamic_cast<juce::AudioParameterChoice*> (processor.apvts.getParameter (name)))
+        {
+            parameter->beginChangeGesture();
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) index));
+            parameter->endChangeGesture();
+        }
+    }
+
+    void toggleBool (const juce::String& name)
+    {
+        if (auto* parameter = dynamic_cast<juce::AudioParameterBool*> (processor.apvts.getParameter (name)))
+        {
+            parameter->beginChangeGesture();
+            parameter->setValueNotifyingHost (parameter->get() ? 0.0f : 1.0f);
+            parameter->endChangeGesture();
+        }
+    }
+
+    void setGlobalInt (const char* name, int value)
+    {
+        if (auto* parameter = dynamic_cast<juce::AudioParameterInt*> (processor.apvts.getParameter (name)))
+        {
+            parameter->beginChangeGesture();
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) value));
+            parameter->endChangeGesture();
+        }
+    }
+
     void bindControls()
     {
         sliderAttachments.clear();
@@ -498,7 +896,7 @@ private:
 
             attachSlider (octaveKnob[delay], layerParam (delayFieldName ("octave", delay).toRawUTF8(), selected));
 
-            for (int control = 0; control < 3; ++control)
+            for (int control = 0; control < 4; ++control)
                 attachSlider (reverbFader[delay][control], layerParam (reverbParam[delay][control].toRawUTF8(), selected));
 
             for (int control = 0; control < 4; ++control)
@@ -514,12 +912,23 @@ private:
 
             attachButton (delaySwitch[delay], delayFieldName ("delayOn", delay).toRawUTF8());
             attachButton (reverbSwitch[delay], delayFieldName ("reverbOn", delay).toRawUTF8());
+            flutterButton[delay].paramId = layerParam (delayFieldName ("flutterOn", delay).toRawUTF8(), selected);
+            attachSlider (flutterSlider[delay], layerParam (delayFieldName ("flutterMs", delay).toRawUTF8(), selected));
 
             for (int type = 0; type < kReverbTypeCount; ++type)
                 reverbType[delay][type].action = reverbTypeAction (selected, delay, type);
         }
 
         attachSlider (level, layerParam ("level", selected));
+        attachSlider (lengthSlider, toneLayerParam ("toneLength", selected));
+        attachSlider (pitchSlider, toneLayerParam ("tonePitch", selected));
+        attachSlider (releaseSlider, toneLayerParam ("fadeRelease", selected));
+        attachSlider (knockPitchSlider, toneLayerParam ("kickPitch", selected));
+        droneButton.paramId = toneLayerParam ("droneOn", selected);
+
+        for (int degree = 0; degree < kDroneDegreeCount; ++degree)
+            degreeButton[degree].paramId = toneLayerParam (droneDegreeParam (degree).toRawUTF8(), selected);
+
         updateAssignmentMarks();
     }
 
@@ -575,7 +984,102 @@ private:
 
         newLayerButton.setEnabled (count < kMaxLayers);
         removeButton.setEnabled (count > 1);
+        layoutTone();
+        layoutDrone();
         layoutBar();
+    }
+
+    void layoutTone()
+    {
+        const int y = toneTop + 6;
+        const int h = 28;
+        int x = 16;
+
+        keyLabel.setBounds (x, y, 32, h);
+        x += 34;
+
+        for (int key = 0; key < kToneKeyCount; ++key)
+        {
+            keyButton[key].setBounds (x, y, 26, h);
+            x += 28;
+        }
+
+        x += 6;
+        octaveLabel.setBounds (x, y, 32, h);
+        x += 34;
+
+        for (int index = 0; index <= kToneOctaveMax - kToneOctaveMin; ++index)
+        {
+            octaveButton[index].setBounds (x, y, 22, h);
+            x += 24;
+        }
+
+        x += 6;
+        overtoneLabel.setBounds (x, y, 78, h);
+        x += 80;
+
+        for (int count = 0; count <= kToneOvertoneMax; ++count)
+        {
+            overtoneButton[count].setBounds (x, y, 22, h);
+            x += 24;
+        }
+
+        x += 6;
+        noiseLabel.setBounds (x, y, 44, h);
+        x += 46;
+
+        const int noiseWidth[] = { 34, 50, 42, 52, 40 };
+        for (int colour = 0; colour < kNoiseColourCount; ++colour)
+        {
+            noiseButton[colour].setBounds (x, y, noiseWidth[colour], h);
+            x += noiseWidth[colour] + 3;
+        }
+
+        testButton.setBounds (getWidth() - 164, y, 148, h);
+    }
+
+    void layoutDrone()
+    {
+        const int y = droneTop + 4;
+        const int h = 28;
+        int x = 16;
+
+        lengthLabel.setBounds (x, y, 58, h);
+        lengthSlider.setBounds (x + 60, y, 230, h);
+        x = 308;
+
+        modeLabel.setBounds (x, y, 46, h);
+        x += 48;
+
+        const int modeWidth[] = { 62, 58, 66 };
+        for (int mode = 0; mode < kDroneModeCount; ++mode)
+        {
+            modeButton[mode].setBounds (x, y, modeWidth[mode], h);
+            x += modeWidth[mode] + 4;
+        }
+
+        x += 10;
+        degreeLabel.setBounds (x, y, 68, h);
+        x += 70;
+
+        for (int degree = 0; degree < kDroneDegreeCount; ++degree)
+        {
+            degreeButton[degree].setBounds (x, y, 28, h);
+            x += 32;
+        }
+
+        x += 10;
+        pitchLabel.setBounds (x, y, 44, h);
+        pitchSlider.setBounds (x + 46, y, 112, h);
+        x += 166;
+
+        releaseLabel.setBounds (x, y, 64, h);
+        releaseSlider.setBounds (x + 66, y, 112, h);
+
+        knockPitchLabel.setBounds (getWidth() - 430, y, 42, h);
+        knockPitchSlider.setBounds (getWidth() - 386, y, 128, h);
+        knockButton.setBounds (getWidth() - 246, y, 118, h);
+        droneButton.setBounds (getWidth() - 120, y, 104, h);
     }
 
     void layoutBar()
@@ -596,8 +1100,12 @@ private:
         newLayerButton.setBounds (x + 8, y, 104, 32);
         removeButton.setBounds (x + 116, y, 70, 32);
         midiButton.setBounds (x + 190, y, 96, 32);
-        testButton.setBounds (x + 294, y, 64, 32);
-        killButton.setBounds (x + 366, y, 72, 32);
+        killTrailsButton.setBounds (x + 294, y, 108, 32);
+        killButton.setBounds (x + 410, y, 72, 32);
+        killAllButton.setBounds (x + 490, y, 118, 32);
+        fadeButton.setBounds (x + 618, y, 100, 32);
+        fadeAllButton.setBounds (x + 726, y, 100, 32);
+        aboutButton.setBounds (getWidth() - 108, 30, 80, 32);
 
         levelLabel.setBounds (getWidth() - 268, y, 52, 32);
         level.setBounds (getWidth() - 212, y + 2, 188, 28);
@@ -662,6 +1170,12 @@ private:
                 markSlider (knob);
 
         markSlider (level);
+        markSlider (lengthSlider);
+        markSlider (pitchSlider);
+        markSlider (releaseSlider);
+        markSlider (knockPitchSlider);
+        for (auto& slider : flutterSlider)
+            markSlider (slider);
 
         auto markSwitch = [this, armed] (MetalSwitch& button)
         {
@@ -698,6 +1212,61 @@ private:
         markAction (newLayerButton);
         markAction (removeButton);
         markAction (testButton);
+        {
+            const int cc = processor.getMappedAction (testToneAction);
+            const juce::String name ("Generate Tone (G)");
+            testButton.setTooltip (cc >= 0 ? name + "  —  MIDI CC " + juce::String (cc)
+                                           : name + "  —  right-click to MIDI learn");
+        }
+        markAction (knockButton);
+        {
+            const int cc = processor.getMappedAction (knockAction);
+            const juce::String name ("Kick Tank (K)");
+            knockButton.setTooltip (cc >= 0 ? name + "  —  MIDI CC " + juce::String (cc)
+                                            : name + "  —  right-click to MIDI learn");
+        }
+        markAction (killAllButton);
+        killAllButton.setTooltip ("Kill Em All  —  stop every layer's drone, notes, and tails");
+        markAction (fadeButton);
+        fadeButton.setTooltip ("Fade Out  —  fade this layer to silence over its release");
+        markAction (fadeAllButton);
+        fadeAllButton.setTooltip ("Fade All  —  fade every layer to silence over its release");
+        markAction (killTrailsButton);
+        killTrailsButton.setTooltip ("Kill Trails  —  clear the tails and centre feedback and decay");
+        for (int key = 0; key < kToneKeyCount; ++key)
+        {
+            markAction (keyButton[key]);
+            const int cc = processor.getMappedAction (keyButton[key].action);
+            const auto name = juce::String (toneKeyName (key)) + "  (" + toneKeyShortcut (key) + ")";
+            keyButton[key].setTooltip (cc >= 0 ? name + "  —  MIDI CC " + juce::String (cc)
+                                               : name + "  —  right-click to MIDI learn");
+        }
+        for (auto& button : octaveButton)
+            markAction (button);
+        for (auto& button : overtoneButton)
+            markAction (button);
+        for (auto& button : noiseButton)
+            markAction (button);
+        for (auto& button : modeButton)
+            markAction (button);
+
+        auto markParam = [this, armed] (LearnButton& button, const juce::String& tip)
+        {
+            const int cc = processor.getMappedController (button.paramId);
+            button.mapped = cc >= 0;
+            auto* parameter = processor.apvts.getParameter (button.paramId);
+            button.learning = armed >= 0 && parameter != nullptr
+                              && parameter->getParameterIndex() == armed;
+            button.setTooltip (cc >= 0 ? tip + "  —  MIDI CC " + juce::String (cc)
+                                       : tip + "  —  right-click to MIDI learn");
+            button.repaint();
+        };
+
+        for (int degree = 0; degree < kDroneDegreeCount; ++degree)
+            markParam (degreeButton[degree], "Drone degree " + juce::String (degree + 1));
+        markParam (droneButton, "Hold the selected degrees in the current key (D)");
+        for (int delay = 0; delay < kDelayCount; ++delay)
+            markParam (flutterButton[delay], "Flutter delay " + juce::String (delay + 1));
 
         const int killCc = processor.getMappedController (killButton.paramId);
         killButton.mapped = killCc >= 0;
@@ -705,7 +1274,7 @@ private:
         killButton.learning = armed >= 0 && killParameter != nullptr
                                && killParameter->getParameterIndex() == armed;
         killButton.setTooltip (killCc >= 0 ? "Kill  —  MIDI CC " + juce::String (killCc)
-                                           : "Kill the delay and reverb tails");
+                                           : "Stop this layer's drone, notes, and tails");
         killButton.repaint();
     }
 
@@ -725,6 +1294,18 @@ private:
 
             typeLed[delay].setText (juce::String (reverbTypeName (typeValue)).toUpperCase());
 
+            const bool shimmer = typeValue == kShimmerType;
+            if (toneKnob[delay][0].isVisible() != shimmer)
+            {
+                for (int control = 0; control < 4; ++control)
+                {
+                    toneKnob[delay][control].setVisible (shimmer);
+                    toneLed[delay][control].setVisible (shimmer);
+                }
+
+                repaint();
+            }
+
             const double shiftValue = toneKnob[delay][0].getValue();
             auto shiftText = juce::String (shiftValue, 2);
             if (shiftValue > 0.005)
@@ -735,8 +1316,48 @@ private:
             toneLed[delay][3].setText (juce::String (toneKnob[delay][3].getValue(), toneKnob[delay][3].getValue() >= 100.0 ? 0 : 2));
 
             delayOnLed[delay].setText (delaySwitch[delay].getToggleState() ? "ON" : "OFF");
+            const auto flutterId = layerParam (delayFieldName ("flutterOn", delay).toRawUTF8(), selected);
+            flutterButton[delay].setToggleState (
+                processor.apvts.getRawParameterValue (flutterId)->load() >= 0.5f,
+                juce::dontSendNotification);
             reverbOnLed[delay].setText (reverbSwitch[delay].getToggleState() ? "ON" : "OFF");
         }
+
+        const auto chosen = [this] (const char* name)
+        {
+            return (int) std::round (processor.apvts.getRawParameterValue (toneLayerParam (name, selected))->load());
+        };
+
+        const int key = chosen ("toneKey");
+        for (int i = 0; i < kToneKeyCount; ++i)
+            keyButton[i].setToggleState (i == key, juce::dontSendNotification);
+
+        const int octave = chosen ("toneOctave");
+        for (int i = 0; i <= kToneOctaveMax - kToneOctaveMin; ++i)
+            octaveButton[i].setToggleState (i + kToneOctaveMin == octave, juce::dontSendNotification);
+
+        const int overtones = chosen ("toneOvertones");
+        for (int i = 0; i <= kToneOvertoneMax; ++i)
+            overtoneButton[i].setToggleState (i == overtones, juce::dontSendNotification);
+
+        const int noise = chosen ("toneNoise");
+        for (int i = 0; i < kNoiseColourCount; ++i)
+            noiseButton[i].setToggleState (i == noise, juce::dontSendNotification);
+
+        const int mode = chosen ("droneMode");
+        for (int i = 0; i < kDroneModeCount; ++i)
+            modeButton[i].setToggleState (i == mode, juce::dontSendNotification);
+
+        for (int degree = 0; degree < kDroneDegreeCount; ++degree)
+        {
+            const bool on = processor.apvts.getRawParameterValue (
+                                toneLayerParam (droneDegreeParam (degree).toRawUTF8(), selected))->load() >= 0.5f;
+            degreeButton[degree].setToggleState (on, juce::dontSendNotification);
+        }
+
+        droneButton.setToggleState (
+            processor.apvts.getRawParameterValue (toneLayerParam ("droneOn", selected))->load() >= 0.5f,
+            juce::dontSendNotification);
     }
 
     void timerCallback() override
@@ -781,7 +1402,7 @@ private:
 
     MetalSlider delayFader[kDelayCount][4];
     MetalKnob octaveKnob[kDelayCount];
-    MetalSlider reverbFader[kDelayCount][3];
+    MetalSlider reverbFader[kDelayCount][4];
     MetalKnob toneKnob[kDelayCount][4];
     LedReadout toneLed[kDelayCount][4];
     LearnSlider level;
@@ -793,14 +1414,35 @@ private:
     LedReadout delayOnLed[kDelayCount];
     LedReadout reverbOnLed[kDelayCount];
     LearnButton testButton;
+    LearnButton killTrailsButton;
     LearnButton killButton;
+    LearnButton killAllButton;
+    LearnButton fadeButton;
+    LearnButton fadeAllButton;
+    LearnButton keyButton[kToneKeyCount];
+    LearnButton octaveButton[kToneOctaveMax - kToneOctaveMin + 1];
+    LearnButton overtoneButton[kToneOvertoneMax + 1];
+    LearnButton noiseButton[kNoiseColourCount];
+    LearnButton modeButton[kDroneModeCount];
+    LearnButton degreeButton[kDroneDegreeCount];
+    LearnButton droneButton;
+    LearnButton knockButton;
+    LearnSlider lengthSlider;
+    LearnSlider pitchSlider;
+    LearnSlider releaseSlider;
+    LearnSlider knockPitchSlider;
+    LearnSlider flutterSlider[kDelayCount];
+    juce::Label keyLabel, octaveLabel, overtoneLabel, noiseLabel;
+    juce::Label lengthLabel, modeLabel, degreeLabel, pitchLabel, releaseLabel, knockPitchLabel;
+    LearnButton flutterButton[kDelayCount];
     juce::String delayParam[kDelayCount][4];
-    juce::String reverbParam[kDelayCount][3];
+    juce::String reverbParam[kDelayCount][4];
     juce::String toneParam[kDelayCount][4];
 
     juce::Label status, levelLabel;
     LearnButton newLayerButton, removeButton;
     juce::TextButton midiButton;
+    juce::TextButton aboutButton;
     juce::OwnedArray<LearnButton> layerButtons;
 
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>> sliderAttachments;
@@ -813,19 +1455,142 @@ private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Content)
 };
 
+struct PluginEditor::AboutPanel : public juce::Component
+{
+    AboutPanel()
+    {
+        faceplate = juce::ImageFileFormat::loadFrom (BinaryData::faceplate_png, BinaryData::faceplate_pngSize);
+        setWantsKeyboardFocus (true);
+
+        closeButton.setButtonText ("Close");
+        closeButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff1a1e24));
+        closeButton.setColour (juce::TextButton::textColourOffId, juce::Colour (0xfff3ecdf));
+        closeButton.onClick = [this] { setVisible (false); };
+        addAndMakeVisible (closeButton);
+
+        link.setButtonText ("www.audiomonkey.co.uk");
+        link.setURL (juce::URL ("https://www.audiomonkey.co.uk"));
+        link.setFont (juce::Font (juce::FontOptions (16.0f)), false, juce::Justification::centredLeft);
+        link.setColour (juce::HyperlinkButton::textColourId, juce::Colour (0xfff3ecdf));
+        addAndMakeVisible (link);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        g.fillAll (juce::Colour (0xff07080b));
+
+        const auto image = fittedImage();
+        if (faceplate.isValid())
+            g.drawImage (faceplate, image);
+
+        g.setColour (juce::Colour (0xffe6d7b8).withAlpha (0.55f));
+        g.drawRect (image, 1.0f);
+
+        auto plate = textBlock().toFloat();
+        g.setColour (juce::Colours::black.withAlpha (0.62f));
+        g.fillRoundedRectangle (plate, 8.0f);
+        g.setColour (juce::Colour (0xffe6d7b8).withAlpha (0.4f));
+        g.drawRoundedRectangle (plate, 8.0f, 1.0f);
+
+        auto text = textBlock().reduced (16, 12);
+        g.setColour (juce::Colour (0xfff3ecdf));
+        g.setFont (juce::Font (juce::FontOptions (22.0f)));
+        g.drawText ("CAVERNOUS", text.removeFromTop (30), juce::Justification::centredLeft);
+        g.setFont (juce::Font (juce::FontOptions (15.0f)));
+        g.setColour (juce::Colour (0xffe6d7b8));
+        g.drawFittedText ("An audio plugin made by Jonathan Holloway.",
+                          text.removeFromTop (40), juce::Justification::centredLeft, 2);
+        g.drawText ("For support", text.removeFromTop (22), juce::Justification::centredLeft);
+    }
+
+    void resized() override
+    {
+        closeButton.setBounds (getWidth() - 96, 16, 76, 30);
+
+        auto text = textBlock().reduced (16, 12);
+        text.removeFromTop (30 + 40 + 22);
+        link.setBounds (text.removeFromTop (24));
+    }
+
+    bool keyPressed (const juce::KeyPress& key) override
+    {
+        if (key == juce::KeyPress::escapeKey)
+        {
+            setVisible (false);
+            return true;
+        }
+
+        return false;
+    }
+
+private:
+    void splitFrame (juce::Rectangle<int>& imageArea, juce::Rectangle<int>& caption) const
+    {
+        auto frame = getLocalBounds().reduced (28, 24);
+        frame.removeFromTop (28);
+
+        if (frame.getWidth() > 860)
+        {
+            caption = frame.removeFromRight (340).reduced (16, 8).withHeight (168);
+            imageArea = frame;
+            return;
+        }
+
+        caption = frame.removeFromBottom (156).reduced (8, 8);
+        imageArea = frame;
+    }
+
+    juce::Rectangle<float> fittedImage() const
+    {
+        if (! faceplate.isValid())
+            return {};
+
+        juce::Rectangle<int> imageArea, caption;
+        splitFrame (imageArea, caption);
+        auto area = imageArea.toFloat();
+        const float scale = juce::jmin (area.getWidth() / (float) faceplate.getWidth(),
+                                         area.getHeight() / (float) faceplate.getHeight());
+        const float w = (float) faceplate.getWidth() * scale;
+        const float h = (float) faceplate.getHeight() * scale;
+        return { area.getX() + (area.getWidth() - w) * 0.5f,
+                 area.getY() + (area.getHeight() - h) * 0.5f, w, h };
+    }
+
+    juce::Rectangle<int> textBlock() const
+    {
+        juce::Rectangle<int> imageArea, caption;
+        splitFrame (imageArea, caption);
+        return caption;
+    }
+
+    juce::Image faceplate;
+    juce::TextButton closeButton;
+    juce::HyperlinkButton link;
+};
+
 PluginEditor::PluginEditor (PluginProcessor& proc)
     : AudioProcessorEditor (proc),
-      content (std::make_unique<Content> (proc))
+      content (std::make_unique<Content> (proc)),
+      aboutPanel (std::make_unique<AboutPanel>())
 {
+    content->onAbout = [this]
+    {
+        aboutPanel->setVisible (true);
+        aboutPanel->toFront (true);
+        aboutPanel->grabKeyboardFocus();
+    };
+
     viewport.setViewedComponent (content.get(), false);
     viewport.setScrollBarsShown (true, true);
     viewport.setScrollBarThickness (12);
     styleScrollBar (viewport.getVerticalScrollBar());
     styleScrollBar (viewport.getHorizontalScrollBar());
     addAndMakeVisible (viewport);
+    addChildComponent (*aboutPanel);
 
     setResizable (true, true);
     setResizeLimits (760, 380, designWidth, designHeight);
+    setWantsKeyboardFocus (true);
 
     int initialW = designWidth;
     int initialH = designHeight;
@@ -840,7 +1605,62 @@ PluginEditor::PluginEditor (PluginProcessor& proc)
     setSize (initialW, initialH);
 }
 
-PluginEditor::~PluginEditor() = default;
+PluginEditor::~PluginEditor()
+{
+    if (shortcutRoot != nullptr)
+        shortcutRoot->removeKeyListener (this);
+}
+
+void PluginEditor::parentHierarchyChanged()
+{
+    attachShortcutListener();
+}
+
+void PluginEditor::attachShortcutListener()
+{
+    auto* top = getParentComponent() != nullptr || isOnDesktop() ? getTopLevelComponent() : nullptr;
+
+    if (top == shortcutRoot.getComponent())
+        return;
+
+    if (shortcutRoot != nullptr)
+        shortcutRoot->removeKeyListener (this);
+
+    shortcutRoot = top;
+
+    if (shortcutRoot != nullptr)
+        shortcutRoot->addKeyListener (this);
+}
+
+bool PluginEditor::keyPressed (const juce::KeyPress& key, juce::Component*)
+{
+    if (aboutPanel != nullptr && aboutPanel->isVisible())
+        return false;
+
+    if (dynamic_cast<juce::TextEditor*> (juce::Component::getCurrentlyFocusedComponent()) != nullptr)
+        return false;
+
+    const auto mods = key.getModifiers();
+    if (mods.isCommandDown() || mods.isCtrlDown() || mods.isAltDown())
+        return false;
+
+    if (heldKeyCodes.contains (key.getKeyCode()))
+        return true;
+
+    if (content == nullptr || ! content->performShortcut (key))
+        return false;
+
+    heldKeyCodes.add (key.getKeyCode());
+    return true;
+}
+
+bool PluginEditor::keyStateChanged (bool isKeyDown, juce::Component*)
+{
+    if (! isKeyDown)
+        heldKeyCodes.clear();
+
+    return false;
+}
 
 void PluginEditor::paint (juce::Graphics& g)
 {
@@ -850,4 +1670,7 @@ void PluginEditor::paint (juce::Graphics& g)
 void PluginEditor::resized()
 {
     viewport.setBounds (getLocalBounds());
+
+    if (aboutPanel != nullptr)
+        aboutPanel->setBounds (getLocalBounds());
 }
